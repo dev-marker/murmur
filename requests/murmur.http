@@ -1,0 +1,49 @@
+@base = http://localhost:8081
+
+### Sign up
+# @name alice
+POST {{base}}/users
+Content-Type: application/json
+
+{ "handle": "alice" }
+
+### The same handle again
+# @name taken
+POST {{base}}/users
+Content-Type: application/json
+
+{ "handle": "alice" }
+
+### A second user
+# @name bob
+POST {{base}}/users
+Content-Type: application/json
+
+{ "handle": "bob" }
+
+### Alice posts
+# @name first
+POST {{base}}/posts
+Authorization: Bearer {{alice.response.body.token}}
+Content-Type: application/json
+
+{ "body": "hello, murmur" }
+
+### And she posts again
+# @name second
+POST {{base}}/posts
+Authorization: Bearer {{alice.response.body.token}}
+Content-Type: application/json
+
+{ "body": "one sitting, one social network" }
+
+### A post without a token
+# @name anonymous
+POST {{base}}/posts
+Content-Type: application/json
+
+{ "body": "who am I?" }
+
+### Alice's posts, newest first
+# @name list
+GET {{base}}/users/alice/posts
