@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fiston-user/murmur/internal/feed"
 	"github.com/fiston-user/murmur/internal/platform/postgres"
 	"github.com/fiston-user/murmur/internal/posts"
 	"github.com/fiston-user/murmur/internal/users"
@@ -47,9 +48,13 @@ func run() error {
 	mux := http.NewServeMux()
 	u := users.New(pool)
 	mux.HandleFunc("POST /users", u.Create)
+	mux.HandleFunc("POST /users/{handle}/follow", u.Auth(u.Follow))
+	mux.HandleFunc("DELETE /users/{handle}/follow", u.Auth(u.Unfollow))
 	p := posts.New(pool)
 	mux.HandleFunc("POST /posts", u.Auth(p.Create))
 	mux.HandleFunc("GET /users/{handle}/posts", p.List)
+	f := feed.New(pool)
+	mux.HandleFunc("GET /feed", u.Auth(f.List))
 
 	srv := &http.Server{
 		Addr:              addr,

@@ -47,3 +47,79 @@ Content-Type: application/json
 ### Alice's posts, newest first
 # @name list
 GET {{base}}/users/alice/posts
+
+### A third user
+# @name carol
+POST {{base}}/users
+Content-Type: application/json
+
+{ "handle": "carol" }
+
+### Carol follows alice
+# @name follow
+POST {{base}}/users/alice/follow
+Authorization: Bearer {{carol.response.body.token}}
+
+### And she follows bob
+# @name followBob
+POST {{base}}/users/bob/follow
+Authorization: Bearer {{carol.response.body.token}}
+
+### Nobody by that name
+# @name nobody
+POST {{base}}/users/dave/follow
+Authorization: Bearer {{carol.response.body.token}}
+
+### Carol unfollows bob
+# @name unfollow
+DELETE {{base}}/users/bob/follow
+Authorization: Bearer {{carol.response.body.token}}
+
+### Carol follows herself
+# @name herself
+POST {{base}}/users/carol/follow
+Authorization: Bearer {{carol.response.body.token}}
+
+### Bob posts
+# @name third
+POST {{base}}/posts
+Authorization: Bearer {{bob.response.body.token}}
+Content-Type: application/json
+
+{ "body": "bob here, good morning" }
+
+### Alice posts once more
+# @name fourth
+POST {{base}}/posts
+Authorization: Bearer {{alice.response.body.token}}
+Content-Type: application/json
+
+{ "body": "somebody is listening now" }
+
+### Bob posts while carol is reading
+# @name late
+POST {{base}}/posts
+Authorization: Bearer {{bob.response.body.token}}
+Content-Type: application/json
+
+{ "body": "while you were reading" }
+
+### Carol's home feed, page one
+# @name page1
+GET {{base}}/feed?limit=2
+Authorization: Bearer {{carol.response.body.token}}
+
+### Page two
+# @name page2
+GET {{base}}/feed?limit=2&cursor={{page1.response.body.next_cursor}}
+Authorization: Bearer {{carol.response.body.token}}
+
+### Page three
+# @name page3
+GET {{base}}/feed?limit=2&cursor={{page2.response.body.next_cursor}}
+Authorization: Bearer {{carol.response.body.token}}
+
+### A cursor that isn't a post id
+# @name badCursor
+GET {{base}}/feed?cursor=latest
+Authorization: Bearer {{carol.response.body.token}}
