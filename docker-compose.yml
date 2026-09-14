@@ -15,5 +15,16 @@ services:
       timeout: 2s
       retries: 15
 
+  # load tests: docker compose run --rm k6 run /load/feed.js
+  k6:
+    image: grafana/k6:2.4.0
+    profiles: [load]
+    volumes:
+      - ./load:/load
+    environment:
+      BASE_URL: http://host.docker.internal:8081
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   pgdata:

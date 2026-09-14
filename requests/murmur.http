@@ -123,3 +123,8 @@ Authorization: Bearer {{carol.response.body.token}}
 # @name badCursor
 GET {{base}}/feed?cursor=latest
 Authorization: Bearer {{carol.response.body.token}}
+
+### A seeded user's feed (after make seed)
+# @name seeded
+GET {{base}}/feed?limit=2
+Authorization: Bearer seed-token-42

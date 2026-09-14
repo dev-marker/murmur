@@ -55,9 +55,15 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	rows, _ := h.db.Query(r.Context(), `
 		select p.id, u.handle, p.body, p.created_at
 		from follows f
-		join posts p on p.user_id = f.followee_id
+		cross join lateral (
+			select id, user_id, body, created_at
+			from posts
+			where user_id = f.followee_id and id < $2
+			order by id desc
+			limit $3
+		) p
 		join users u on u.id = p.user_id
-		where f.follower_id = $1 and p.id < $2
+		where f.follower_id = $1
 		order by p.id desc
 		limit $3`, users.ID(r.Context()), cursor, limit+1)
 	posts, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Post])
