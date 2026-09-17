@@ -1,4 +1,4 @@
-// Package testdb gives integration tests a real Postgres database.
+// Package testdb gives integration tests a real Postgres database, and a real Redis.
 package testdb
 
 import (
@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	"github.com/fiston-user/murmur/internal/platform/postgres"
+	"github.com/fiston-user/murmur/internal/platform/redisx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 // The Compose Postgres (make up). Tests get a database of their own, never the one the API uses.
@@ -46,4 +48,19 @@ func New(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("empty the tables: %v", err)
 	}
 	return pool
+}
+
+// Redis returns a client on database 1 of the Compose Redis, emptied. The API uses database 0.
+func Redis(t *testing.T) *redis.Client {
+	t.Helper()
+	ctx := context.Background()
+	rdb, err := redisx.Connect(ctx, "redis://localhost:6379/1")
+	if err != nil {
+		t.Fatalf("connect to redis (did you run make up?): %v", err)
+	}
+	t.Cleanup(func() { rdb.Close() })
+	if err := rdb.FlushDB(ctx).Err(); err != nil {
+		t.Fatalf("empty redis database 1: %v", err)
+	}
+	return rdb
 }

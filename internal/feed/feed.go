@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fiston-user/murmur/internal/platform/httpx"
+	"github.com/fiston-user/murmur/internal/timeline"
 	"github.com/fiston-user/murmur/internal/users"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,10 +30,11 @@ type Page struct {
 
 type Handler struct {
 	db *pgxpool.Pool
+	tl *timeline.Store
 }
 
-func New(db *pgxpool.Pool) *Handler {
-	return &Handler{db: db}
+func New(db *pgxpool.Pool, tl *timeline.Store) *Handler {
+	return &Handler{db: db, tl: tl}
 }
 
 // List returns a page of the caller's home feed, newest first.
@@ -52,20 +54,17 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		cursor = id
 	}
+	ids, err := h.tl.Page(r.Context(), users.ID(r.Context()), cursor, limit+1)
+	if err != nil {
+		httpx.ServerError(w, r, err)
+		return
+	}
 	rows, _ := h.db.Query(r.Context(), `
 		select p.id, u.handle, p.body, p.created_at
-		from follows f
-		cross join lateral (
-			select id, user_id, body, created_at
-			from posts
-			where user_id = f.followee_id and id < $2
-			order by id desc
-			limit $3
-		) p
+		from posts p
 		join users u on u.id = p.user_id
-		where f.follower_id = $1
-		order by p.id desc
-		limit $3`, users.ID(r.Context()), cursor, limit+1)
+		where p.id = any($1)
+		order by p.id desc`, ids)
 	posts, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Post])
 	if err != nil {
 		httpx.ServerError(w, r, err)

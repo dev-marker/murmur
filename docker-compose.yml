@@ -15,6 +15,18 @@ services:
       timeout: 2s
       retries: 15
 
+  # a cache: everything in it can be rebuilt from Postgres, so nothing is saved to disk
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
   # load tests: docker compose run --rm k6 run /load/feed.js
   k6:
     image: grafana/k6:2.4.0

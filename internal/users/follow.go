@@ -41,6 +41,11 @@ func (h *Handler) Follow(w http.ResponseWriter, r *http.Request) {
 		httpx.ServerError(w, r, err)
 		return
 	}
+	// Who they follow just changed, so their timeline is out of date.
+	if err := h.tl.Drop(r.Context(), ID(r.Context())); err != nil {
+		httpx.ServerError(w, r, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -54,6 +59,11 @@ func (h *Handler) Unfollow(w http.ResponseWriter, r *http.Request) {
 		`delete from follows where follower_id = $1 and followee_id = $2`,
 		ID(r.Context()), followee)
 	if err != nil {
+		httpx.ServerError(w, r, err)
+		return
+	}
+	// Who they follow just changed, so their timeline is out of date.
+	if err := h.tl.Drop(r.Context(), ID(r.Context())); err != nil {
 		httpx.ServerError(w, r, err)
 		return
 	}

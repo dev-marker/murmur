@@ -2,11 +2,13 @@
 package posts
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 	"unicode/utf8"
 
 	"github.com/fiston-user/murmur/internal/platform/httpx"
+	"github.com/fiston-user/murmur/internal/timeline"
 	"github.com/fiston-user/murmur/internal/users"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,10 +24,11 @@ type Post struct {
 
 type Handler struct {
 	db *pgxpool.Pool
+	tl *timeline.Store
 }
 
-func New(db *pgxpool.Pool) *Handler {
-	return &Handler{db: db}
+func New(db *pgxpool.Pool, tl *timeline.Store) *Handler {
+	return &Handler{db: db, tl: tl}
 }
 
 // Create saves a post by the user who is calling.
@@ -45,6 +48,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httpx.ServerError(w, r, err)
 		return
+	}
+	// The post is saved. If the fan-out fails we log it, and the author still gets a 201.
+	if err := h.tl.Push(r.Context(), post.UserID, post.ID); err != nil {
+		slog.ErrorContext(r.Context(), "fan-out failed", "post", post.ID, "error", err)
 	}
 	httpx.JSON(w, http.StatusCreated, post)
 }

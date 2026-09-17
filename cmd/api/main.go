@@ -14,7 +14,9 @@ import (
 
 	"github.com/fiston-user/murmur/internal/feed"
 	"github.com/fiston-user/murmur/internal/platform/postgres"
+	"github.com/fiston-user/murmur/internal/platform/redisx"
 	"github.com/fiston-user/murmur/internal/posts"
+	"github.com/fiston-user/murmur/internal/timeline"
 	"github.com/fiston-user/murmur/internal/users"
 )
 
@@ -45,15 +47,22 @@ func run() error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
+	rdb, err := redisx.Connect(ctx, os.Getenv("REDIS_URL"))
+	if err != nil {
+		return fmt.Errorf("connect to redis: %w", err)
+	}
+	defer rdb.Close()
+	timelines := timeline.New(pool, rdb)
+
 	mux := http.NewServeMux()
-	u := users.New(pool)
+	u := users.New(pool, timelines)
 	mux.HandleFunc("POST /users", u.Create)
 	mux.HandleFunc("POST /users/{handle}/follow", u.Auth(u.Follow))
 	mux.HandleFunc("DELETE /users/{handle}/follow", u.Auth(u.Unfollow))
-	p := posts.New(pool)
+	p := posts.New(pool, timelines)
 	mux.HandleFunc("POST /posts", u.Auth(p.Create))
 	mux.HandleFunc("GET /users/{handle}/posts", p.List)
-	f := feed.New(pool)
+	f := feed.New(pool, timelines)
 	mux.HandleFunc("GET /feed", u.Auth(f.List))
 
 	srv := &http.Server{

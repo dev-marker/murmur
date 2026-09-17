@@ -128,3 +128,29 @@ Authorization: Bearer {{carol.response.body.token}}
 # @name seeded
 GET {{base}}/feed?limit=2
 Authorization: Bearer seed-token-42
+
+### A quiet account posts (it has 30 followers)
+# @name quietPost
+POST {{base}}/posts
+Authorization: Bearer seed-token-16726
+Content-Type: application/json
+
+{ "body": "good morning from a quiet account" }
+
+### One of its followers reads their feed
+# @name follower
+GET {{base}}/feed?limit=2
+Authorization: Bearer seed-token-2000
+
+### A reader who follows 199 accounts
+# @name heavy
+GET {{base}}/feed?limit=2
+Authorization: Bearer seed-token-363
+
+### The biggest account posts (it has 29,620 followers)
+# @name bigPost
+POST {{base}}/posts
+Authorization: Bearer seed-token-1
+Content-Type: application/json
+
+{ "body": "hello, everybody" }

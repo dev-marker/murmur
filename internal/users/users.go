@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/fiston-user/murmur/internal/platform/httpx"
+	"github.com/fiston-user/murmur/internal/timeline"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,10 +22,11 @@ var validHandle = regexp.MustCompile(`^[a-z0-9_]{3,20}$`)
 
 type Handler struct {
 	db *pgxpool.Pool
+	tl *timeline.Store
 }
 
-func New(db *pgxpool.Pool) *Handler {
-	return &Handler{db: db}
+func New(db *pgxpool.Pool, tl *timeline.Store) *Handler {
+	return &Handler{db: db, tl: tl}
 }
 
 // Create signs a user up and answers with a token, shown once.
