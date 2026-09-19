@@ -34,8 +34,14 @@ func (h *Handler) Follow(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "you can't follow yourself")
 		return
 	}
-	_, err := h.db.Exec(r.Context(),
-		`insert into follows (follower_id, followee_id) values ($1, $2) on conflict do nothing`,
+	_, err := h.db.Exec(r.Context(), `
+		with added as (
+			insert into follows (follower_id, followee_id) values ($1, $2)
+			on conflict do nothing
+			returning followee_id
+		)
+		update users set followers_count = followers_count + 1
+		where id in (select followee_id from added)`,
 		ID(r.Context()), followee)
 	if err != nil {
 		httpx.ServerError(w, r, err)
@@ -55,8 +61,13 @@ func (h *Handler) Unfollow(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	_, err := h.db.Exec(r.Context(),
-		`delete from follows where follower_id = $1 and followee_id = $2`,
+	_, err := h.db.Exec(r.Context(), `
+		with removed as (
+			delete from follows where follower_id = $1 and followee_id = $2
+			returning followee_id
+		)
+		update users set followers_count = followers_count - 1
+		where id in (select followee_id from removed)`,
 		ID(r.Context()), followee)
 	if err != nil {
 		httpx.ServerError(w, r, err)

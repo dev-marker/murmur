@@ -3,8 +3,10 @@
 package timeline
 
 import (
+	"cmp"
 	"context"
 	"math"
+	"slices"
 	"strconv"
 	"time"
 
@@ -22,10 +24,11 @@ const ttl = 7 * 24 * time.Hour
 type Store struct {
 	db  *pgxpool.Pool
 	rdb *redis.Client
+	big int // followers that make an account big: its posts are pulled, not pushed
 }
 
-func New(db *pgxpool.Pool, rdb *redis.Client) *Store {
-	return &Store{db: db, rdb: rdb}
+func New(db *pgxpool.Pool, rdb *redis.Client, big int) *Store {
+	return &Store{db: db, rdb: rdb, big: big}
 }
 
 // key is where a reader's timeline lives in Redis.
@@ -43,9 +46,14 @@ return redis.call('ZREMRANGEBYRANK', KEYS[1], 1, -ARGV[2] - 1)`)
 
 // Push adds a post to the timelines of the people who follow its author.
 func (s *Store) Push(ctx context.Context, author, post int64) error {
-	rows, _ := s.db.Query(ctx, `select follower_id from follows where followee_id = $1`, author)
+	// A big account gets no rows here: its posts are pulled when a feed is read.
+	rows, _ := s.db.Query(ctx, `
+		select follower_id
+		from follows
+		where followee_id = $1
+		  and (select followers_count from users where id = $1) < $2`, author, s.big)
 	followers, err := pgx.CollectRows(rows, pgx.RowTo[int64])
-	if err != nil {
+	if err != nil || len(followers) == 0 {
 		return err
 	}
 	// Redis gets the script once. After that, the pipeline calls it by its hash.
@@ -77,17 +85,31 @@ func (s *Store) Page(ctx context.Context, user, cursor int64, n int) ([]int64, e
 		return nil, err
 	}
 	if len(ids) < n || ids[n-1] == 0 { // the timeline ends here: Postgres has the rest
-		return s.fromFollows(ctx, user, cursor, n)
+		return s.fromFollows(ctx, user, cursor, n, 0)
 	}
-	return ids, nil
+	pulled, err := s.fromFollows(ctx, user, cursor, n, s.big)
+	if err != nil {
+		return nil, err
+	}
+	return merge(ids, pulled, n), nil
+}
+
+// merge joins two lists of post ids into one, newest first, n at most.
+// A post that is in both lists comes out once.
+func merge(a, b []int64, n int) []int64 {
+	ids := slices.Concat(a, b)
+	slices.SortFunc(ids, func(x, y int64) int { return cmp.Compare(y, x) })
+	ids = slices.Compact(ids)
+	return ids[:min(n, len(ids))]
 }
 
 // fromFollows is the slow way to a feed, straight from Postgres: the newest posts
-// of every followed account, sorted together.
-func (s *Store) fromFollows(ctx context.Context, user, cursor int64, n int) ([]int64, error) {
+// of every followed account with at least atLeast followers, sorted together.
+func (s *Store) fromFollows(ctx context.Context, user, cursor int64, n, atLeast int) ([]int64, error) {
 	rows, _ := s.db.Query(ctx, `
 		select p.id
 		from follows f
+		join users u on u.id = f.followee_id and u.followers_count >= $4
 		cross join lateral (
 			select id
 			from posts
@@ -97,7 +119,7 @@ func (s *Store) fromFollows(ctx context.Context, user, cursor int64, n int) ([]i
 		) p
 		where f.follower_id = $1
 		order by p.id desc
-		limit $3`, user, cursor, n)
+		limit $3`, user, cursor, n, atLeast)
 	return pgx.CollectRows(rows, pgx.RowTo[int64])
 }
 
@@ -108,7 +130,7 @@ func (s *Store) build(ctx context.Context, user int64) error {
 	if err := s.rdb.ZAdd(ctx, key(user), zs...).Err(); err != nil {
 		return err
 	}
-	ids, err := s.fromFollows(ctx, user, math.MaxInt64, Max)
+	ids, err := s.fromFollows(ctx, user, math.MaxInt64, Max, 0)
 	if err != nil {
 		return err
 	}

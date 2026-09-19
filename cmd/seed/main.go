@@ -106,6 +106,16 @@ func run(ctx context.Context, users int, seed uint64) error {
 		return err
 	}
 
+	// Every user's follower count, from the follows we just loaded.
+	_, err = conn.Exec(ctx, `
+		update users u
+		set followers_count = c.n
+		from (select followee_id, count(*) as n from follows group by followee_id) c
+		where u.id = c.followee_id`)
+	if err != nil {
+		return err
+	}
+
 	first := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	err = load(ctx, conn, "posts", []string{"user_id", "body", "created_at"},
 		pgx.CopyFromSlice(20*users, func(i int) ([]any, error) {

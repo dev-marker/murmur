@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -52,7 +53,11 @@ func run() error {
 		return fmt.Errorf("connect to redis: %w", err)
 	}
 	defer rdb.Close()
-	timelines := timeline.New(pool, rdb)
+	big, err := strconv.Atoi(cmp.Or(os.Getenv("BIG_ACCOUNT"), "1000"))
+	if err != nil {
+		return fmt.Errorf("BIG_ACCOUNT: %w", err)
+	}
+	timelines := timeline.New(pool, rdb, big)
 
 	mux := http.NewServeMux()
 	u := users.New(pool, timelines)

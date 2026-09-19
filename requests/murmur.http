@@ -154,3 +154,16 @@ Authorization: Bearer seed-token-1
 Content-Type: application/json
 
 { "body": "hello, everybody" }
+
+### The biggest account posts again
+# @name bigAgain
+POST {{base}}/posts
+Authorization: Bearer seed-token-1
+Content-Type: application/json
+
+{ "body": "can anybody hear me?" }
+
+### A follower of the biggest account reads their feed
+# @name fan
+GET {{base}}/feed?limit=2
+Authorization: Bearer seed-token-739

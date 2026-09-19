@@ -27,7 +27,7 @@ type client struct {
 
 func newClient(t *testing.T) *client {
 	db, rdb := testdb.New(t), testdb.Redis(t)
-	tl := timeline.New(db, rdb)
+	tl := timeline.New(db, rdb, 2)
 	u, p, f := users.New(db, tl), posts.New(db, tl), feed.New(db, tl)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /users", u.Create)
@@ -134,5 +134,33 @@ func TestTimeline(t *testing.T) {
 	c.call("GET", "/feed?limit=1", bob, "", http.StatusOK, &page)
 	if len(page.Posts) != 1 || page.Posts[0].ID != 4 {
 		t.Fatalf("page = %+v, want post 4: the read didn't come from Redis", page.Posts)
+	}
+}
+
+func TestBigAccount(t *testing.T) {
+	c := newClient(t) // in these tests, two followers make an account big
+	ctx := context.Background()
+	alice, bob, carol, dave := c.signUp("alice"), c.signUp("bob"), c.signUp("carol"), c.signUp("dave")
+	c.call("POST", "/users/alice/follow", bob, "", http.StatusNoContent, nil)
+	c.call("POST", "/users/alice/follow", carol, "", http.StatusNoContent, nil)
+	// Bob follows dave twice. That must count once, or dave would be big too.
+	c.call("POST", "/users/dave/follow", bob, "", http.StatusNoContent, nil)
+	c.call("POST", "/users/dave/follow", bob, "", http.StatusNoContent, nil)
+	// Bob reads once, so he has a timeline for posts to land in.
+	c.call("GET", "/feed", bob, "", http.StatusOK, nil)
+	for _, token := range []string{dave, alice, dave, alice} {
+		c.call("POST", "/posts", token, `{"body": "hello"}`, http.StatusCreated, nil)
+	}
+
+	// Dave is small, so his posts were pushed. Alice is big, so hers were not.
+	got := c.rdb.ZRange(ctx, "timeline:2", 0, -1).Val()
+	if want := []string{"0", "1", "3"}; !slices.Equal(got, want) {
+		t.Fatalf("bob's timeline = %v, want %v", got, want)
+	}
+	// And still, alice's newest post is on top of bob's feed.
+	var page feed.Page
+	c.call("GET", "/feed?limit=1", bob, "", http.StatusOK, &page)
+	if len(page.Posts) != 1 || page.Posts[0].ID != 4 {
+		t.Fatalf("page = %+v, want post 4, pulled from a big account", page.Posts)
 	}
 }
