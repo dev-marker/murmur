@@ -2,11 +2,11 @@
 package posts
 
 import (
-	"log/slog"
 	"net/http"
 	"time"
 	"unicode/utf8"
 
+	"github.com/fiston-user/murmur/internal/jobs"
 	"github.com/fiston-user/murmur/internal/platform/httpx"
 	"github.com/fiston-user/murmur/internal/timeline"
 	"github.com/fiston-user/murmur/internal/users"
@@ -24,11 +24,10 @@ type Post struct {
 
 type Handler struct {
 	db *pgxpool.Pool
-	tl *timeline.Store
 }
 
-func New(db *pgxpool.Pool, tl *timeline.Store) *Handler {
-	return &Handler{db: db, tl: tl}
+func New(db *pgxpool.Pool) *Handler {
+	return &Handler{db: db}
 }
 
 // Create saves a post by the user who is calling.
@@ -42,16 +41,20 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	post := Post{UserID: users.ID(r.Context()), Body: in.Body}
-	err = h.db.QueryRow(r.Context(),
-		`insert into posts (user_id, body) values ($1, $2) returning id, created_at`,
-		post.UserID, post.Body).Scan(&post.ID, &post.CreatedAt)
+	// The post and its job are saved together, or not at all.
+	err = pgx.BeginFunc(r.Context(), h.db, func(tx pgx.Tx) error {
+		err := tx.QueryRow(r.Context(),
+			`insert into posts (user_id, body) values ($1, $2) returning id, created_at`,
+			post.UserID, post.Body).Scan(&post.ID, &post.CreatedAt)
+		if err != nil {
+			return err
+		}
+		args := timeline.FanOutArgs{Author: post.UserID, Post: post.ID}
+		return jobs.Enqueue(r.Context(), tx, timeline.FanOut, args)
+	})
 	if err != nil {
 		httpx.ServerError(w, r, err)
 		return
-	}
-	// The post is saved. If the fan-out fails we log it, and the author still gets a 201.
-	if err := h.tl.Push(r.Context(), post.UserID, post.ID); err != nil {
-		slog.ErrorContext(r.Context(), "fan-out failed", "post", post.ID, "error", err)
 	}
 	httpx.JSON(w, http.StatusCreated, post)
 }

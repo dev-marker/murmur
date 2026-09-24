@@ -167,3 +167,27 @@ Content-Type: application/json
 # @name fan
 GET {{base}}/feed?limit=2
 Authorization: Bearer seed-token-739
+
+### A quiet account posts while Redis refuses to write
+# @name lost
+POST {{base}}/posts
+Authorization: Bearer seed-token-16726
+Content-Type: application/json
+
+{ "body": "is this thing on?" }
+
+### It posts again, and no worker is running
+# @name queued
+POST {{base}}/posts
+Authorization: Bearer seed-token-16726
+Content-Type: application/json
+
+{ "body": "this one waits for a worker" }
+
+### And again, with Redis full and a worker running
+# @name retried
+POST {{base}}/posts
+Authorization: Bearer seed-token-16726
+Content-Type: application/json
+
+{ "body": "Redis was full when I wrote this" }

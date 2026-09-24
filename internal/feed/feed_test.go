@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/fiston-user/murmur/internal/feed"
+	"github.com/fiston-user/murmur/internal/jobs"
 	"github.com/fiston-user/murmur/internal/platform/testdb"
 	"github.com/fiston-user/murmur/internal/posts"
 	"github.com/fiston-user/murmur/internal/timeline"
@@ -23,12 +24,15 @@ type client struct {
 	t   *testing.T
 	url string
 	rdb *redis.Client
+	w   *jobs.Worker
 }
 
 func newClient(t *testing.T) *client {
 	db, rdb := testdb.New(t), testdb.Redis(t)
 	tl := timeline.New(db, rdb, 2)
-	u, p, f := users.New(db, tl), posts.New(db, tl), feed.New(db, tl)
+	u, p, f := users.New(db, tl), posts.New(db), feed.New(db, tl)
+	w := jobs.NewWorker(db)
+	w.Handle(timeline.FanOut, tl.RunFanOut)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /users", u.Create)
 	mux.HandleFunc("POST /posts", u.Auth(p.Create))
@@ -36,7 +40,7 @@ func newClient(t *testing.T) *client {
 	mux.HandleFunc("GET /feed", u.Auth(f.List))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return &client{t: t, url: srv.URL, rdb: rdb}
+	return &client{t: t, url: srv.URL, rdb: rdb, w: w}
 }
 
 // call sends one request, checks the status, and decodes a JSON answer into out (unless out is nil).
@@ -55,11 +59,26 @@ func (c *client) call(method, path, token, body string, want int, out any) {
 	if res.StatusCode != want {
 		c.t.Fatalf("%s %s: status %d, want %d", method, path, res.StatusCode, want)
 	}
+	c.work() // run what this request queued
 	if out == nil {
 		return
 	}
 	if err := json.NewDecoder(res.Body).Decode(out); err != nil {
 		c.t.Fatalf("%s %s: %v", method, path, err)
+	}
+}
+
+// work runs the queue until it's empty, like the worker does, minus the sleep.
+func (c *client) work() {
+	c.t.Helper()
+	for {
+		ok, err := c.w.RunOne(context.Background())
+		if err != nil {
+			c.t.Fatal(err)
+		}
+		if !ok {
+			return
+		}
 	}
 }
 

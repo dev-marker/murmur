@@ -5,6 +5,7 @@ package timeline
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"math"
 	"slices"
 	"strconv"
@@ -66,6 +67,24 @@ func (s *Store) Push(ctx context.Context, author, post int64) error {
 	}
 	_, err = pipe.Exec(ctx)
 	return err
+}
+
+// FanOut is the kind of job that pushes one post to its author's followers.
+const FanOut = "fanout"
+
+// FanOutArgs is that job's payload.
+type FanOutArgs struct {
+	Author int64 `json:"author"`
+	Post   int64 `json:"post"`
+}
+
+// RunFanOut handles a FanOut job: it pushes the post in the payload.
+func (s *Store) RunFanOut(ctx context.Context, payload []byte) error {
+	var a FanOutArgs
+	if err := json.Unmarshal(payload, &a); err != nil {
+		return err
+	}
+	return s.Push(ctx, a.Author, a.Post)
 }
 
 // Page returns up to n post ids below cursor from a reader's feed, newest first.

@@ -64,7 +64,7 @@ func run() error {
 	mux.HandleFunc("POST /users", u.Create)
 	mux.HandleFunc("POST /users/{handle}/follow", u.Auth(u.Follow))
 	mux.HandleFunc("DELETE /users/{handle}/follow", u.Auth(u.Unfollow))
-	p := posts.New(pool, timelines)
+	p := posts.New(pool)
 	mux.HandleFunc("POST /posts", u.Auth(p.Create))
 	mux.HandleFunc("GET /users/{handle}/posts", p.List)
 	f := feed.New(pool, timelines)
