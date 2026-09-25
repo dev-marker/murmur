@@ -6,6 +6,7 @@ export { handleSummary } from './summary.js';
 export const options = {
   vus: Number(__ENV.VUS || 20),
   duration: '20s',
+  iterations: Number(__ENV.POSTS) || undefined, // POSTS=500 stops after 500 posts
   summaryTrendStats: ['med', 'p(99)'],
 };
 

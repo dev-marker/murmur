@@ -3,7 +3,7 @@ DATABASE_URL ?= postgres://murmur:murmur@localhost:5432/murmur?sslmode=disable&c
 REDIS_URL ?= redis://localhost:6379/0
 export DATABASE_URL REDIS_URL
 
-.PHONY: up down run test seed load explain redis worker jobs claim
+.PHONY: up down run test seed load explain redis worker jobs claim dead retry poison
 
 # start Postgres and Redis
 up:
@@ -33,7 +33,7 @@ seed:
 
 # run a k6 script from load/, in Docker: make load S=feed
 load:
-	docker compose run --rm -e VUS -e READERS -e AUTHORS -e FIRST k6 run /load/$(S).js
+	docker compose run --rm -e VUS -e READERS -e AUTHORS -e FIRST -e POSTS k6 run /load/$(S).js
 
 # what Postgres does to build one user's feed: make explain U=42
 Q ?= feed
@@ -45,11 +45,32 @@ explain:
 redis:
 	@docker compose exec redis redis-cli $(C)
 
-# the queue: how many jobs are in it, how long the oldest has waited, and the first two
+# the queue: how many jobs are waiting, running and dead, and two of them: running ones first
 jobs:
 	@docker compose exec postgres psql -U murmur \
-		-c "select count(*) as jobs, max(now() - created_at)::interval(0) as oldest from jobs" \
-		-c "select id, kind, status, payload from jobs order by id limit 2"
+		-c "select count(*) filter (where status = 'waiting') as waiting, \
+			count(*) filter (where status = 'running') as running, \
+			count(*) filter (where status = 'dead') as dead, \
+			max(now() - created_at) filter (where status <> 'dead')::interval(0) as oldest from jobs" \
+		-c "select id, kind, status, payload from jobs where status <> 'dead' order by status, id limit 2"
+
+# the dead list: jobs that used up their attempts, and the last thing that went wrong
+dead:
+	@docker compose exec postgres psql -U murmur \
+		-c "select id, kind, attempts, left(last_error, 84) as last_error \
+			from jobs where status = 'dead' order by id"
+
+# send dead jobs back to the queue with a fresh count: all of them, or make retry ID=7
+retry:
+	@docker compose exec postgres psql -U murmur \
+		-c "update jobs set status = 'waiting', attempts = 0, run_at = now() \
+			where status = 'dead' $(if $(ID),and id = $(ID))"
+
+# a job that can never work: its author is a name, and the handler wants a number
+poison:
+	@docker compose exec postgres psql -U murmur \
+		-c "insert into jobs (kind, payload) \
+			values ('fanout', jsonb_build_object('author', 'alice', 'post', 1))"
 
 # a worker, played by hand: begin, pick a job with db/claim.sql, hold it for 8 seconds, roll back
 claim:

@@ -25,6 +25,7 @@ type client struct {
 	url string
 	rdb *redis.Client
 	w   *jobs.Worker
+	tl  *timeline.Store
 }
 
 func newClient(t *testing.T) *client {
@@ -40,7 +41,7 @@ func newClient(t *testing.T) *client {
 	mux.HandleFunc("GET /feed", u.Auth(f.List))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return &client{t: t, url: srv.URL, rdb: rdb, w: w}
+	return &client{t: t, url: srv.URL, rdb: rdb, w: w, tl: tl}
 }
 
 // call sends one request, checks the status, and decodes a JSON answer into out (unless out is nil).
@@ -181,5 +182,24 @@ func TestBigAccount(t *testing.T) {
 	c.call("GET", "/feed?limit=1", bob, "", http.StatusOK, &page)
 	if len(page.Posts) != 1 || page.Posts[0].ID != 4 {
 		t.Fatalf("page = %+v, want post 4, pulled from a big account", page.Posts)
+	}
+}
+
+// A job can run twice. The second fan-out of a post must change nothing.
+func TestFanOutTwice(t *testing.T) {
+	c := newClient(t)
+	ctx := context.Background()
+	alice, bob := c.signUp("alice"), c.signUp("bob")
+	c.call("POST", "/users/alice/follow", bob, "", http.StatusNoContent, nil)
+	c.call("GET", "/feed", bob, "", http.StatusOK, nil) // bob has a timeline now
+	c.call("POST", "/posts", alice, `{"body": "hello"}`, http.StatusCreated, nil)
+
+	// The queue ran this job once. Now it runs a second time.
+	if err := c.tl.RunFanOut(ctx, []byte(`{"author": 1, "post": 1}`)); err != nil {
+		t.Fatal(err)
+	}
+	got := c.rdb.ZRange(ctx, "timeline:2", 0, -1).Val()
+	if want := []string{"0", "1"}; !slices.Equal(got, want) {
+		t.Fatalf("bob's timeline = %v, want %v", got, want)
 	}
 }

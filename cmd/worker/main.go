@@ -50,11 +50,15 @@ func run() error {
 		return fmt.Errorf("BIG_ACCOUNT: %w", err)
 	}
 	timelines := timeline.New(pool, rdb, big)
+	timeout, err := time.ParseDuration(cmp.Or(os.Getenv("JOB_TIMEOUT"), "1m"))
+	if err != nil {
+		return fmt.Errorf("JOB_TIMEOUT: %w", err)
+	}
 
 	w := jobs.NewWorker(pool)
 	w.Handle(timeline.FanOut, timelines.RunFanOut)
 	slog.Info("working")
-	w.Run(ctx, time.Second)
+	w.Run(ctx, time.Second, timeout)
 	slog.Info("shutting down")
 	return nil
 }

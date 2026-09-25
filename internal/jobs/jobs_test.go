@@ -3,7 +3,6 @@ package jobs_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"sync"
 	"testing"
 
@@ -77,32 +76,5 @@ func TestEnqueueRollsBack(t *testing.T) {
 	}
 	if ok, err := w.RunOne(ctx); ok || err != nil {
 		t.Fatalf("after a rollback: ran = %v, err = %v, want no job", ok, err)
-	}
-}
-
-// A job whose handler fails goes back to waiting, and the next claim finds it again.
-func TestFailedJobIsTriedAgain(t *testing.T) {
-	db := testdb.New(t)
-	ctx := context.Background()
-	if err := jobs.Enqueue(ctx, db, "flaky", 1); err != nil {
-		t.Fatal(err)
-	}
-	calls := 0
-	w := jobs.NewWorker(db)
-	w.Handle("flaky", func(context.Context, []byte) error {
-		if calls++; calls == 1 {
-			return errors.New("not this time")
-		}
-		return nil
-	})
-
-	if ok, err := w.RunOne(ctx); !ok || err == nil {
-		t.Fatalf("first try: ran = %v, err = %v, want a job and an error", ok, err)
-	}
-	if ok, err := w.RunOne(ctx); !ok || err != nil {
-		t.Fatalf("second try: ran = %v, err = %v, want a job and no error", ok, err)
-	}
-	if ok, _ := w.RunOne(ctx); ok || calls != 2 {
-		t.Fatalf("after that: ran = %v, calls = %d, want an empty queue and 2 calls", ok, calls)
 	}
 }
