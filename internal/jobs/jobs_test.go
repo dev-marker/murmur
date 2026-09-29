@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/fiston-user/murmur/internal/jobs"
 	"github.com/fiston-user/murmur/internal/platform/testdb"
@@ -13,7 +14,8 @@ import (
 // Eight workers empty a queue of 200 jobs at the same time. Every job must run exactly once.
 func TestEveryJobRunsOnce(t *testing.T) {
 	db := testdb.New(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	const n = 200
 	for i := range n {
 		if err := jobs.Enqueue(ctx, db, "count", i); err != nil {
@@ -22,7 +24,7 @@ func TestEveryJobRunsOnce(t *testing.T) {
 	}
 
 	var mu sync.Mutex
-	ran := make([]int, n)
+	ran, left := make([]int, n), n
 	w := jobs.NewWorker(db)
 	w.Handle("count", func(ctx context.Context, payload []byte) error {
 		var i int
@@ -32,24 +34,13 @@ func TestEveryJobRunsOnce(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		ran[i]++
+		if left--; left == 0 {
+			cancel()
+		}
 		return nil
 	})
 
-	var wg sync.WaitGroup
-	for range 8 {
-		wg.Go(func() {
-			for {
-				ok, err := w.RunOne(ctx)
-				if err != nil {
-					t.Error(err)
-				}
-				if !ok {
-					return
-				}
-			}
-		})
-	}
-	wg.Wait()
+	w.Run(ctx, 8, time.Millisecond, time.Minute, time.Minute)
 	for i, times := range ran {
 		if times != 1 {
 			t.Errorf("job %d ran %d times, want 1", i, times)

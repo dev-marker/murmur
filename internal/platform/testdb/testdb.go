@@ -39,7 +39,7 @@ func New(t *testing.T) *pgxpool.Pool {
 	if err := postgres.Migrate(testURL); err != nil {
 		t.Fatalf("migrate murmur_test: %v", err)
 	}
-	pool, err := postgres.Connect(ctx, testURL)
+	pool, err := postgres.Connect(ctx, testURL, 0)
 	if err != nil {
 		t.Fatalf("connect to murmur_test: %v", err)
 	}

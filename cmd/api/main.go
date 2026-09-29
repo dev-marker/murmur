@@ -39,7 +39,7 @@ func run() error {
 	}
 	addr := cmp.Or(os.Getenv("ADDR"), ":8081")
 
-	pool, err := postgres.Connect(ctx, url)
+	pool, err := postgres.Connect(ctx, url, 0)
 	if err != nil {
 		return fmt.Errorf("connect to postgres: %w", err)
 	}

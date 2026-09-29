@@ -13,9 +13,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Connect opens a pool and checks that the database answers.
-func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
+// Connect opens a pool of at least conns connections, and checks that the database answers.
+func Connect(ctx context.Context, url string, conns int) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, err
+	}
+	cfg.MaxConns = max(cfg.MaxConns, int32(conns))
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

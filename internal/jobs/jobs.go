@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,7 +22,7 @@ type DB interface {
 
 // Enqueue saves a job. In a transaction, it's saved only if that commits.
 func Enqueue(ctx context.Context, db DB, kind string, payload any) error {
-	_, err := db.Exec(ctx, `insert into jobs (kind, payload, run_at) values ($1, $2, $3)`,
+	_, err := db.Exec(ctx, `insert into jobs (kind, payload, created_at, run_at) values ($1, $2, $3, $3)`,
 		kind, payload, time.Now())
 	return err
 }
@@ -53,6 +54,7 @@ type Handler func(ctx context.Context, payload []byte) error
 type Worker struct {
 	db       *pgxpool.Pool
 	handlers map[string]Handler
+	done     tally
 	now      func() time.Time // the worker's clock. A test can set its own
 }
 
@@ -69,6 +71,7 @@ type job struct {
 	id      int64
 	kind    string
 	payload []byte
+	queued  time.Time
 	attempt int // which try this is, counted by the claim
 }
 
@@ -85,7 +88,8 @@ func (w *Worker) claim(ctx context.Context) (job, error) {
 			limit 1
 			for update skip locked
 		)
-		returning id, kind, payload, attempts`, w.now()).Scan(&j.id, &j.kind, &j.payload, &j.attempt)
+		returning id, kind, payload, attempts, created_at`, w.now()).
+		Scan(&j.id, &j.kind, &j.payload, &j.attempt, &j.queued)
 	return j, err
 }
 
@@ -135,44 +139,102 @@ func (w *Worker) RunOne(ctx context.Context) (bool, error) {
 		return true, errors.Join(err, back)
 	}
 	_, err = w.db.Exec(ctx, `delete from jobs where id = $1`, j.id)
+	if err == nil {
+		w.done.add(w.now().Sub(j.queued))
+	}
 	return true, err
 }
 
-// Run works through the queue until ctx is cancelled. A job that has been
-// running for longer than timeout goes back to the queue.
-func (w *Worker) Run(ctx context.Context, poll, timeout time.Duration) {
-	var swept time.Time
-	for ctx.Err() == nil {
-		start, done := time.Now(), 0
-		for ctx.Err() == nil {
-			if time.Since(swept) > timeout/2 {
-				swept = time.Now()
-				n, err := w.Sweep(ctx, timeout)
-				if err != nil {
-					slog.Error("sweep failed", "error", err)
-				} else if n > 0 {
-					slog.Info("jobs swept", "count", n)
-				}
-			}
-			// A job that has started is finished, even after a cancel.
-			ok, err := w.RunOne(context.WithoutCancel(ctx))
-			if err != nil {
-				slog.Error("job failed", "error", err)
-			}
-			if !ok {
-				break
-			}
-			if err == nil {
-				done++
-			}
+// Run works through the queue with n loops side by side, until ctx is cancelled.
+// A job that has been running for longer than timeout goes back to the queue.
+// After the cancel, no loop takes a new job, and Run returns when the jobs in hand are done.
+// A job that needs longer than grace for that is cut off. A sweep will find it.
+func (w *Worker) Run(ctx context.Context, n int, poll, timeout, grace time.Duration) {
+	// Jobs get a context of their own, so a cancel doesn't stop them halfway.
+	work, cut := context.WithCancel(context.WithoutCancel(ctx))
+	defer cut()
+	go func() {
+		<-ctx.Done()
+		select {
+		case <-time.After(grace):
+			slog.Warn("out of time, jobs in hand are cut off")
+			cut()
+		case <-work.Done():
 		}
-		if done > 0 {
-			took := time.Since(start).Round(time.Millisecond)
-			slog.Info("jobs done", "count", done, "took", took.String())
+	}()
+	var loops sync.WaitGroup
+	for range n {
+		loops.Go(func() { w.loop(ctx, work, poll) })
+	}
+	idle := make(chan struct{})
+	go func() {
+		loops.Wait()
+		close(idle)
+	}()
+	w.tend(work, idle, timeout)
+}
+
+// tend does what the loops share: it sweeps, and it reports.
+func (w *Worker) tend(ctx context.Context, idle <-chan struct{}, timeout time.Duration) {
+	sweep, report := time.NewTicker(timeout/2), time.NewTicker(every)
+	defer sweep.Stop()
+	defer report.Stop()
+	w.sweep(ctx, timeout)
+	last := time.Now()
+	for {
+		select {
+		case <-sweep.C:
+			w.sweep(ctx, timeout)
+		case <-report.C:
+			w.report(time.Since(last))
+			last = time.Now()
+		case <-idle:
+			w.report(time.Since(last))
+			return
+		}
+	}
+}
+
+// loop claims a job and runs it, again and again. With nothing due, it sleeps for poll.
+func (w *Worker) loop(ctx, work context.Context, poll time.Duration) {
+	for ctx.Err() == nil {
+		// A job that has started is finished, even after a cancel.
+		ok, err := w.RunOne(work)
+		if err != nil {
+			slog.Error("job failed", "error", err)
+		}
+		if ok {
+			continue
 		}
 		select {
 		case <-ctx.Done():
 		case <-time.After(poll):
 		}
 	}
+}
+
+// sweep is one Sweep, and a line in the log when it found something.
+func (w *Worker) sweep(ctx context.Context, timeout time.Duration) {
+	n, err := w.Sweep(ctx, timeout)
+	if err != nil {
+		slog.Error("sweep failed", "error", err)
+	} else if n > 0 {
+		slog.Info("jobs swept", "count", n)
+	}
+}
+
+// every is how often a worker reports what it got done.
+const every = 5 * time.Second
+
+// report logs what got done since the last report.
+func (w *Worker) report(over time.Duration) {
+	waits := w.done.take()
+	n := len(waits)
+	if n == 0 {
+		return
+	}
+	slog.Info("jobs done", "count", n, "over", over.Round(100*time.Millisecond).String(),
+		"per_second", int(float64(n)/over.Seconds()),
+		"median_wait", waits[n/2].Round(time.Millisecond).String(),
+		"longest_wait", waits[n-1].Round(time.Millisecond).String())
 }
