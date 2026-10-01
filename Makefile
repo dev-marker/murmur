@@ -14,6 +14,8 @@ down:
 	docker compose down
 
 # build the API into bin/ and run it
+# the rate limits are settings: make run USER_BURST=3 USER_PER_MINUTE=12
+# for load tests, where k6 sends every user from one address: make run IP_PER_MINUTE=6000000
 run:
 	go build -o bin/api ./cmd/api
 	./bin/api

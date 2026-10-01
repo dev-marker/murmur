@@ -191,3 +191,13 @@ Authorization: Bearer seed-token-16726
 Content-Type: application/json
 
 { "body": "Redis was full when I wrote this" }
+
+### One reader, again and again: watch RateLimit count down
+# @name again
+GET {{base}}/feed?limit=1
+Authorization: Bearer seed-token-42
+
+### The account that hammered us asks for its feed
+# @name hammered
+GET {{base}}/feed?limit=1
+Authorization: Bearer seed-token-16726

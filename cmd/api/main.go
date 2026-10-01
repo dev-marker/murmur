@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/fiston-user/murmur/internal/platform/postgres"
 	"github.com/fiston-user/murmur/internal/platform/redisx"
 	"github.com/fiston-user/murmur/internal/posts"
+	"github.com/fiston-user/murmur/internal/ratelimit"
 	"github.com/fiston-user/murmur/internal/timeline"
 	"github.com/fiston-user/murmur/internal/users"
 )
@@ -59,20 +61,34 @@ func run() error {
 	}
 	timelines := timeline.New(pool, rdb, big)
 
+	perIP, err := limiter("ip", 100, 3000)
+	if err != nil {
+		return err
+	}
+	perUser, err := limiter("user", 20, 60)
+	if err != nil {
+		return err
+	}
+	byUser := func(r *http.Request) string { return strconv.FormatInt(users.ID(r.Context()), 10) }
+
 	mux := http.NewServeMux()
 	u := users.New(pool, timelines)
+	// Signed in: first who it is, then if they have a token left.
+	authed := func(next http.HandlerFunc) http.HandlerFunc {
+		return u.Auth(perUser.Limit(byUser, next))
+	}
 	mux.HandleFunc("POST /users", u.Create)
-	mux.HandleFunc("POST /users/{handle}/follow", u.Auth(u.Follow))
-	mux.HandleFunc("DELETE /users/{handle}/follow", u.Auth(u.Unfollow))
+	mux.HandleFunc("POST /users/{handle}/follow", authed(u.Follow))
+	mux.HandleFunc("DELETE /users/{handle}/follow", authed(u.Unfollow))
 	p := posts.New(pool)
-	mux.HandleFunc("POST /posts", u.Auth(p.Create))
+	mux.HandleFunc("POST /posts", authed(p.Create))
 	mux.HandleFunc("GET /users/{handle}/posts", p.List)
 	f := feed.New(pool, timelines)
-	mux.HandleFunc("GET /feed", u.Auth(f.List))
+	mux.HandleFunc("GET /feed", authed(f.List))
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           perIP.Limit(ratelimit.ByIP, mux.ServeHTTP),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -92,4 +108,26 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// limiter makes a rate limiter from two settings, or from their defaults. For "ip",
+// IP_BURST is how many requests may come at once, and IP_PER_MINUTE is the steady rate.
+func limiter(name string, burst, perMinute int) (*ratelimit.Limiter, error) {
+	var err error
+	if burst, err = setting(strings.ToUpper(name)+"_BURST", burst); err != nil {
+		return nil, err
+	}
+	if perMinute, err = setting(strings.ToUpper(name)+"_PER_MINUTE", perMinute); err != nil {
+		return nil, err
+	}
+	return ratelimit.New(name, burst, perMinute), nil
+}
+
+// setting reads a positive whole number from the environment, or takes the default.
+func setting(env string, def int) (int, error) {
+	n, err := strconv.Atoi(cmp.Or(os.Getenv(env), strconv.Itoa(def)))
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s: %q is not a positive number", env, os.Getenv(env))
+	}
+	return n, nil
 }
