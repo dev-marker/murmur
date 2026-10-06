@@ -27,6 +27,16 @@ services:
       timeout: 2s
       retries: 15
 
+  # the load balancer: one door for every client, and the API servers behind it
+  nginx:
+    image: nginx:1.30.7
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   # load tests: docker compose run --rm k6 run /load/feed.js
   k6:
     image: grafana/k6:2.4.0
@@ -34,7 +44,7 @@ services:
     volumes:
       - ./load:/load
     environment:
-      BASE_URL: http://host.docker.internal:8081
+      BASE_URL: http://nginx:8080
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

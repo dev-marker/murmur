@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 	"github.com/fiston-user/murmur/internal/ratelimit"
 	"github.com/fiston-user/murmur/internal/timeline"
 	"github.com/fiston-user/murmur/internal/users"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -61,11 +63,16 @@ func run() error {
 	}
 	timelines := timeline.New(pool, rdb, big)
 
-	perIP, err := limiter("ip", 100, 3000)
+	trusted, err := proxies()
 	if err != nil {
 		return err
 	}
-	perUser, err := limiter("user", 20, 60)
+
+	perIP, err := limiter(rdb, "ip", 100, 3000)
+	if err != nil {
+		return err
+	}
+	perUser, err := limiter(rdb, "user", 20, 60)
 	if err != nil {
 		return err
 	}
@@ -75,7 +82,7 @@ func run() error {
 	u := users.New(pool, timelines)
 	// Signed in: first who it is, then if they have a token left.
 	authed := func(next http.HandlerFunc) http.HandlerFunc {
-		return u.Auth(perUser.Limit(byUser, next))
+		return u.Auth(ratelimit.Limit(perUser, byUser, next))
 	}
 	mux.HandleFunc("POST /users", u.Create)
 	mux.HandleFunc("POST /users/{handle}/follow", authed(u.Follow))
@@ -88,7 +95,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           perIP.Limit(ratelimit.ByIP, mux.ServeHTTP),
+		Handler:           ratelimit.Limit(perIP, trusted.ByIP, mux.ServeHTTP),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -112,7 +119,8 @@ func run() error {
 
 // limiter makes a rate limiter from two settings, or from their defaults. For "ip",
 // IP_BURST is how many requests may come at once, and IP_PER_MINUTE is the steady rate.
-func limiter(name string, burst, perMinute int) (*ratelimit.Limiter, error) {
+// The buckets live in Redis, and in this server's memory while Redis is away.
+func limiter(rdb *redis.Client, name string, burst, perMinute int) (ratelimit.Allower, error) {
 	var err error
 	if burst, err = setting(strings.ToUpper(name)+"_BURST", burst); err != nil {
 		return nil, err
@@ -120,7 +128,8 @@ func limiter(name string, burst, perMinute int) (*ratelimit.Limiter, error) {
 	if perMinute, err = setting(strings.ToUpper(name)+"_PER_MINUTE", perMinute); err != nil {
 		return nil, err
 	}
-	return ratelimit.New(name, burst, perMinute), nil
+	shared := ratelimit.NewShared(rdb, name, burst, perMinute)
+	return ratelimit.NewFallback(shared, ratelimit.New(name, burst, perMinute)), nil
 }
 
 // setting reads a positive whole number from the environment, or takes the default.
@@ -130,4 +139,22 @@ func setting(env string, def int) (int, error) {
 		return 0, fmt.Errorf("%s: %q is not a positive number", env, os.Getenv(env))
 	}
 	return n, nil
+}
+
+// proxies reads TRUSTED_PROXIES: the addresses our load balancers connect from, as
+// prefixes like 10.0.0.0/8 with commas between them. Nobody else is believed about
+// X-Forwarded-For.
+func proxies() (ratelimit.Proxies, error) {
+	var ps ratelimit.Proxies
+	for s := range strings.SplitSeq(os.Getenv("TRUSTED_PROXIES"), ",") {
+		if s = strings.TrimSpace(s); s == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(s)
+		if err != nil {
+			return nil, fmt.Errorf("TRUSTED_PROXIES: %w", err)
+		}
+		ps = append(ps, p)
+	}
+	return ps, nil
 }

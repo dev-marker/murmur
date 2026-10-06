@@ -1,4 +1,4 @@
-@base = http://localhost:8081
+@base = http://localhost:8080
 
 ### Sign up
 # @name alice
@@ -201,3 +201,16 @@ Authorization: Bearer seed-token-42
 # @name hammered
 GET {{base}}/feed?limit=1
 Authorization: Bearer seed-token-16726
+
+### A reader asks for an empty page: all we want is the headers
+# @name counted
+GET {{base}}/feed?limit=1&cursor=1
+Authorization: Bearer seed-token-42
+
+### Somebody posts, while we take Redis away
+# @name spare
+POST {{base}}/posts
+Authorization: Bearer seed-token-2000
+Content-Type: application/json
+
+{ "body": "is Redis there?" }

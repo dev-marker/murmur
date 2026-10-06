@@ -1,7 +1,8 @@
-// Package ratelimit is a token bucket rate limiter that lives in memory.
+// Package ratelimit is a token bucket rate limiter in memory, or shared through Redis.
 package ratelimit
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -43,8 +44,13 @@ type Result struct {
 	RetryAfter time.Duration
 }
 
+// Policy is what this limit is called, and how many tokens a bucket gains in a minute.
+func (l *Limiter) Policy() (name string, perMinute int) {
+	return l.name, l.perMinute
+}
+
 // Allow takes one token from key's bucket, if there is one.
-func (l *Limiter) Allow(key string) Result {
+func (l *Limiter) Allow(_ context.Context, key string) (Result, error) {
 	burst, rate := float64(l.burst), float64(l.perMinute)/60
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -68,7 +74,7 @@ func (l *Limiter) Allow(key string) Result {
 	}
 	res.Remaining = int(b.tokens)
 	l.buckets[key] = b
-	return res
+	return res, nil
 }
 
 // full is how long an empty bucket takes to fill up.

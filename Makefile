@@ -1,11 +1,15 @@
 # Local development. The API reads DATABASE_URL and REDIS_URL from the environment.
 DATABASE_URL ?= postgres://murmur:murmur@localhost:5432/murmur?sslmode=disable&connect_timeout=5
 REDIS_URL ?= redis://localhost:6379/0
-export DATABASE_URL REDIS_URL
+# The one proxy the API believes about X-Forwarded-For is nginx (make up). With Docker
+# Desktop, its connections reach the API from this machine itself. On another setup,
+# put the address your API sees them come from.
+TRUSTED_PROXIES ?= 127.0.0.1/32
+export DATABASE_URL REDIS_URL TRUSTED_PROXIES
 
 .PHONY: up down run test seed load explain redis worker jobs claim dead retry poison
 
-# start Postgres and Redis
+# start Postgres, Redis and nginx
 up:
 	docker compose up -d --wait
 
@@ -13,7 +17,7 @@ up:
 down:
 	docker compose down
 
-# build the API into bin/ and run it
+# build the API into bin/ and run it. A second server, for nginx: make run ADDR=:8082
 # the rate limits are settings: make run USER_BURST=3 USER_PER_MINUTE=12
 # for load tests, where k6 sends every user from one address: make run IP_PER_MINUTE=6000000
 run:
@@ -34,8 +38,9 @@ seed:
 	go run ./cmd/seed --users 100000 --seed 1
 
 # run a k6 script from load/, in Docker: make load S=feed
+# it goes through nginx. One server, directly: make load S=feed BASE_URL=http://host.docker.internal:8081
 load:
-	docker compose run --rm -e VUS -e READERS -e AUTHORS -e FIRST -e POSTS -e RATE k6 run /load/$(S).js
+	docker compose run --rm -e BASE_URL -e VUS -e READERS -e AUTHORS -e FIRST -e POSTS -e RATE k6 run /load/$(S).js
 
 # what Postgres does to build one user's feed: make explain U=42
 Q ?= feed
