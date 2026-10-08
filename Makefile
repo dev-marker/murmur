@@ -39,8 +39,10 @@ seed:
 
 # run a k6 script from load/, in Docker: make load S=feed
 # it goes through nginx. One server, directly: make load S=feed BASE_URL=http://host.docker.internal:8081
+# a like storm on one post: make load S=likes POST=2000002
 load:
-	docker compose run --rm -e BASE_URL -e VUS -e READERS -e AUTHORS -e FIRST -e POSTS -e RATE k6 run /load/$(S).js
+	docker compose run --rm -e BASE_URL -e VUS -e READERS -e AUTHORS -e FIRST -e POSTS -e RATE -e POST \
+		k6 run /load/$(S).js
 
 # what Postgres does to build one user's feed: make explain U=42
 Q ?= feed
@@ -84,7 +86,7 @@ claim:
 	@docker compose exec -T postgres psql -U murmur -q \
 		-c 'begin' -c '\timing on' -f - -c '\timing off' -c '\! sleep 8' -c 'rollback' < db/claim.sql
 
-.PHONY: watch backlog cpu waits hold head
+.PHONY: watch backlog cpu waits hold head likes
 
 # the queue, every two seconds: jobs waiting, jobs running, and how long the oldest has waited
 watch:
@@ -126,3 +128,10 @@ head:
 		select id from jobs where status = 'waiting' and run_at <= now() \
 		order by run_at, id limit 1 for update skip locked" \
 		| grep -E -A 3 "Scan|Execution" | grep -E "Buffers|Execution" | sed 's/^ *//'
+
+# one post's likes: the rows in the likes table, the count on the post, and what still waits to be counted
+likes:
+	@docker compose exec -T postgres psql -U murmur -c \
+		"select (select count(*) from likes where post_id = p.id) as likes, p.likes_count as counted, \
+			(select coalesce(sum(delta), 0) from like_deltas where post_id = p.id) as waiting \
+		from posts p where p.id = $(P)"

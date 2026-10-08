@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/fiston-user/murmur/internal/jobs"
+	"github.com/fiston-user/murmur/internal/likes"
+	"github.com/fiston-user/murmur/internal/notify"
 	"github.com/fiston-user/murmur/internal/platform/postgres"
 	"github.com/fiston-user/murmur/internal/platform/redisx"
 	"github.com/fiston-user/murmur/internal/timeline"
@@ -65,6 +67,8 @@ func run() error {
 
 	w := jobs.NewWorker(pool)
 	w.Handle(timeline.FanOut, timelines.RunFanOut)
+	w.Handle(notify.Like, notify.New(pool).RunLike)
+	go likes.FoldEvery(ctx, pool, time.Second)
 	slog.Info("working", "workers", workers, "connections", pool.Config().MaxConns)
 	w.Run(ctx, workers, time.Second, timeout, grace)
 	slog.Info("shutting down")

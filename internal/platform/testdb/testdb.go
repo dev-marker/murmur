@@ -44,7 +44,9 @@ func New(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("connect to murmur_test: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(ctx, `truncate users, posts, follows, jobs restart identity`); err != nil {
+	if _, err := pool.Exec(ctx, `
+		truncate users, posts, follows, jobs, likes, like_deltas, notifications
+		restart identity`); err != nil {
 		t.Fatalf("empty the tables: %v", err)
 	}
 	return pool

@@ -20,6 +20,7 @@ type Post struct {
 	Handle    string    `json:"handle"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"created_at"`
+	Likes     int       `json:"likes"`
 }
 
 // Page is one page of a feed. NextCursor is null on the last page.
@@ -60,7 +61,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, _ := h.db.Query(r.Context(), `
-		select p.id, u.handle, p.body, p.created_at
+		select p.id, u.handle, p.body, p.created_at, p.likes_count
 		from posts p
 		join users u on u.id = p.user_id
 		where p.id = any($1)

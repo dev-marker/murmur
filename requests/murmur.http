@@ -214,3 +214,56 @@ Authorization: Bearer seed-token-2000
 Content-Type: application/json
 
 { "body": "is Redis there?" }
+
+### Somebody likes the quiet account's post
+# @name like
+POST {{base}}/posts/{{quietPost.response.body.id}}/like
+Authorization: Bearer seed-token-2000
+
+### And takes the like back
+# @name unlike
+DELETE {{base}}/posts/{{quietPost.response.body.id}}/like
+Authorization: Bearer seed-token-2000
+
+### A like for a post that doesn't exist
+# @name missing
+POST {{base}}/posts/999999999/like
+Authorization: Bearer seed-token-2000
+
+### The top of that user's feed
+# @name liked
+GET {{base}}/feed?limit=1
+Authorization: Bearer seed-token-2000
+
+### A follower of the biggest account reads the top of their feed
+# @name reader
+GET {{base}}/feed?limit=1
+Authorization: Bearer seed-token-739
+
+### The quiet account's notifications, newest first
+# @name inbox
+GET {{base}}/notifications?limit=2
+Authorization: Bearer seed-token-16726
+
+### How many of them it hasn't seen
+# @name unread
+GET {{base}}/notifications/unread
+Authorization: Bearer seed-token-16726
+
+### It has seen everything up to the newest one
+# @name seen
+POST {{base}}/notifications/read
+Authorization: Bearer seed-token-16726
+Content-Type: application/json
+
+{ "up_to": {{inbox.response.body.notifications[0].id}} }
+
+### The biggest account looks at its bell
+# @name bigUnread
+GET {{base}}/notifications/unread
+Authorization: Bearer seed-token-1
+
+### And at its list
+# @name bigInbox
+GET {{base}}/notifications?limit=1
+Authorization: Bearer seed-token-1
