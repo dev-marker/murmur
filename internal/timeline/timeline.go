@@ -6,11 +6,13 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"slices"
 	"strconv"
 	"time"
 
+	"github.com/fiston-user/murmur/internal/live"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -61,9 +63,11 @@ func (s *Store) Push(ctx context.Context, author, post int64) error {
 	if err := add.Load(ctx, s.rdb).Err(); err != nil {
 		return err
 	}
+	news := live.Event{Kind: "post", Data: fmt.Appendf(nil, `{"post_id":%d}`, post)}
 	pipe := s.rdb.Pipeline()
 	for _, id := range followers {
 		add.EvalSha(ctx, pipe, []string{key(id)}, post, Max)
+		live.Publish(ctx, pipe, id, news)
 	}
 	_, err = pipe.Exec(ctx)
 	return err

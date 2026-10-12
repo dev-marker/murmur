@@ -67,7 +67,7 @@ func run() error {
 
 	w := jobs.NewWorker(pool)
 	w.Handle(timeline.FanOut, timelines.RunFanOut)
-	w.Handle(notify.Like, notify.New(pool).RunLike)
+	w.Handle(notify.Like, notify.New(pool, rdb).RunLike)
 	go likes.FoldEvery(ctx, pool, time.Second)
 	slog.Info("working", "workers", workers, "connections", pool.Config().MaxConns)
 	w.Run(ctx, workers, time.Second, timeout, grace)

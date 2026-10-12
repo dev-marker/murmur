@@ -17,6 +17,7 @@ import (
 
 	"github.com/fiston-user/murmur/internal/feed"
 	"github.com/fiston-user/murmur/internal/likes"
+	"github.com/fiston-user/murmur/internal/live"
 	"github.com/fiston-user/murmur/internal/notify"
 	"github.com/fiston-user/murmur/internal/platform/postgres"
 	"github.com/fiston-user/murmur/internal/platform/redisx"
@@ -95,12 +96,17 @@ func run() error {
 	l := likes.New(pool)
 	mux.HandleFunc("POST /posts/{id}/like", authed(l.Like))
 	mux.HandleFunc("DELETE /posts/{id}/like", authed(l.Unlike))
-	n := notify.New(pool)
+	n := notify.New(pool, rdb)
 	mux.HandleFunc("GET /notifications", authed(n.List))
 	mux.HandleFunc("GET /notifications/unread", authed(n.Unread))
 	mux.HandleFunc("POST /notifications/read", authed(n.Read))
 	f := feed.New(pool, timelines)
 	mux.HandleFunc("GET /feed", authed(f.List))
+	hub := live.NewHub()
+	go hub.Subscribe(ctx, rdb)
+	go hub.Report(ctx, 5*time.Second)
+	lv := &live.Handler{Done: ctx.Done(), Hub: hub, User: users.ID, Missed: n.Since}
+	mux.HandleFunc("GET /live", authed(lv.Stream))
 
 	srv := &http.Server{
 		Addr:              addr,

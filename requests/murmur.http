@@ -267,3 +267,26 @@ Authorization: Bearer seed-token-1
 # @name bigInbox
 GET {{base}}/notifications?limit=1
 Authorization: Bearer seed-token-1
+
+### Three more people like the quiet account's post
+# @name like2
+POST {{base}}/posts/{{quietPost.response.body.id}}/like
+Authorization: Bearer seed-token-739
+
+###
+# @name like3
+POST {{base}}/posts/{{quietPost.response.body.id}}/like
+Authorization: Bearer seed-token-42
+
+###
+# @name like4
+POST {{base}}/posts/{{quietPost.response.body.id}}/like
+Authorization: Bearer seed-token-363
+
+### An account with 966 followers posts: the biggest fan-out we still push
+# @name widePost
+POST {{base}}/posts
+Authorization: Bearer seed-token-115
+Content-Type: application/json
+
+{ "body": "hello to all 966 of you" }

@@ -56,7 +56,9 @@ func run(ctx context.Context, users int, seed uint64) error {
 	defer conn.Close(ctx)
 
 	// Start from nothing, so the first user is always id 1.
-	if _, err := conn.Exec(ctx, `truncate users, posts, follows restart identity`); err != nil {
+	if _, err := conn.Exec(ctx, `
+		truncate users, posts, follows, jobs, likes, like_deltas, notifications
+		restart identity`); err != nil {
 		return err
 	}
 	// We only write ids we just made: skip the foreign key checks.

@@ -86,7 +86,7 @@ claim:
 	@docker compose exec -T postgres psql -U murmur -q \
 		-c 'begin' -c '\timing on' -f - -c '\timing off' -c '\! sleep 8' -c 'rollback' < db/claim.sql
 
-.PHONY: watch backlog cpu waits hold head likes
+.PHONY: watch backlog cpu waits hold head likes followers
 
 # the queue, every two seconds: jobs waiting, jobs running, and how long the oldest has waited
 watch:
@@ -135,3 +135,9 @@ likes:
 		"select (select count(*) from likes where post_id = p.id) as likes, p.likes_count as counted, \
 			(select coalesce(sum(delta), 0) from like_deltas where post_id = p.id) as waiting \
 		from posts p where p.id = $(P)"
+
+# the ids of everybody who follows one account, for the stream client:
+# ./bin/listen -count $(make followers OF=115)
+followers:
+	@docker compose exec -T postgres psql -U murmur -Atc \
+		"select follower_id from follows where followee_id = $(OF) order by 1"

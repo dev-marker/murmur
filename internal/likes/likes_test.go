@@ -33,7 +33,7 @@ type app struct {
 
 func newApp(t *testing.T) *app {
 	db := testdb.New(t)
-	u, p, l, n := users.New(db, nil), posts.New(db), likes.New(db), notify.New(db)
+	u, p, l, n := users.New(db, nil), posts.New(db), likes.New(db), notify.New(db, testdb.Redis(t))
 	w := jobs.NewWorker(db)
 	w.Handle(notify.Like, n.RunLike)
 	// A post queues a fan-out job as well. Nobody follows anybody here, so there's nothing to do.
