@@ -1,0 +1,187 @@
+{
+  "title": "Murmur",
+  "uid": "murmur",
+  "refresh": "5s",
+  "time": { "from": "now-5m", "to": "now" },
+  "panels": [
+  {
+    "title": "Requests a second, by route", "type": "timeseries",
+    "gridPos": { "x": 0, "y": 3, "w": 8, "h": 5 },
+    "fieldConfig": { "defaults": { "unit": "reqps" } },
+    "targets": [{
+      "expr": "sum by (route) (rate(http_requests_total[20s]))",
+      "legendFormat": "{{route}}"
+    }]
+  },
+  {
+    "title": "Processes up", "type": "stat",
+    "gridPos": { "x": 0, "y": 0, "w": 3, "h": 3 },
+    "options": { "graphMode": "none" },
+    "fieldConfig": { "defaults": { "unit": "none", "noValue": "0",
+      "thresholds": { "steps": [{ "color": "text", "value": null }] } } },
+    "targets": [{
+      "expr": "sum(up)"
+    }]
+  },
+  {
+    "title": "Requests", "type": "stat",
+    "gridPos": { "x": 3, "y": 0, "w": 3, "h": 3 },
+    "options": { "graphMode": "none" },
+    "fieldConfig": { "defaults": { "unit": "reqps", "noValue": "0",
+      "thresholds": { "steps": [{ "color": "text", "value": null }] } } },
+    "targets": [{
+      "expr": "sum(rate(http_requests_total[20s]))"
+    }]
+  },
+  {
+    "title": "Failed", "type": "stat",
+    "gridPos": { "x": 6, "y": 0, "w": 3, "h": 3 },
+    "options": { "graphMode": "none" },
+    "fieldConfig": { "defaults": { "unit": "percentunit", "noValue": "0",
+      "thresholds": { "steps": [{ "color": "text", "value": null }, { "color": "red", "value": 0.001 }] } } },
+    "targets": [{
+      "expr": "sum(rate(http_requests_total{status=~\"5..\"}[20s])) / sum(rate(http_requests_total[20s]))"
+    }]
+  },
+  {
+    "title": "p99, all routes", "type": "stat",
+    "gridPos": { "x": 9, "y": 0, "w": 3, "h": 3 },
+    "options": { "graphMode": "none" },
+    "fieldConfig": { "defaults": { "unit": "s", "noValue": "0",
+      "thresholds": { "steps": [{ "color": "text", "value": null }] } } },
+    "targets": [{
+      "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[20s])))"
+    }]
+  },
+  {
+    "title": "Jobs waiting", "type": "stat",
+    "gridPos": { "x": 12, "y": 0, "w": 3, "h": 3 },
+    "options": { "graphMode": "none" },
+    "fieldConfig": { "defaults": { "unit": "none", "noValue": "0",
+      "thresholds": { "steps": [{ "color": "text", "value": null }] } } },
+    "targets": [{
+      "expr": "max(murmur_queue_jobs{status=\"waiting\"})"
+    }]
+  },
+  {
+    "title": "Likes to count", "type": "stat",
+    "gridPos": { "x": 15, "y": 0, "w": 3, "h": 3 },
+    "options": { "graphMode": "none" },
+    "fieldConfig": { "defaults": { "unit": "none", "noValue": "0",
+      "thresholds": { "steps": [{ "color": "text", "value": null }] } } },
+    "targets": [{
+      "expr": "max(murmur_like_deltas)"
+    }]
+  },
+  {
+    "title": "Fallen back", "type": "stat",
+    "gridPos": { "x": 18, "y": 0, "w": 3, "h": 3 },
+    "options": { "graphMode": "none" },
+    "fieldConfig": { "defaults": { "unit": "none", "noValue": "0",
+      "thresholds": { "steps": [{ "color": "text", "value": null }, { "color": "red", "value": 1 }] } } },
+    "targets": [{
+      "expr": "sum(murmur_ratelimit_fallback)"
+    }]
+  },
+  {
+    "title": "Streams open", "type": "stat",
+    "gridPos": { "x": 21, "y": 0, "w": 3, "h": 3 },
+    "options": { "graphMode": "none" },
+    "fieldConfig": { "defaults": { "unit": "none", "noValue": "0",
+      "thresholds": { "steps": [{ "color": "text", "value": null }] } } },
+    "targets": [{
+      "expr": "sum(murmur_live_streams)"
+    }]
+  },
+  {
+    "title": "Answers that are not a 2xx, a second", "type": "timeseries",
+    "gridPos": { "x": 8, "y": 3, "w": 8, "h": 5 },
+    "fieldConfig": { "defaults": { "unit": "reqps" } },
+    "targets": [{
+      "expr": "sum by (status) (rate(http_requests_total{status!~\"2..\"}[20s]))",
+      "legendFormat": "{{status}}"
+    }]
+  },
+  {
+    "title": "How long a request takes", "type": "timeseries",
+    "gridPos": { "x": 16, "y": 3, "w": 8, "h": 5 },
+    "fieldConfig": { "defaults": { "unit": "s" } },
+    "targets": [{
+      "expr": "histogram_quantile(0.99, sum by (le, route) (rate(http_request_duration_seconds_bucket[20s])))",
+      "legendFormat": "p99 {{route}}"
+    }, {
+      "expr": "histogram_quantile(0.5, sum by (le, route) (rate(http_request_duration_seconds_bucket[20s])))",
+      "legendFormat": "p50 {{route}}"
+    }]
+  },
+  {
+    "title": "The queue", "type": "timeseries",
+    "gridPos": { "x": 0, "y": 8, "w": 8, "h": 5 },
+    "fieldConfig": { "defaults": { "unit": "short" } },
+    "targets": [{
+      "expr": "max by (status) (murmur_queue_jobs)",
+      "legendFormat": "jobs {{status}}"
+    }, {
+      "expr": "max(murmur_like_deltas)",
+      "legendFormat": "likes not counted yet"
+    }]
+  },
+  {
+    "title": "How long a job waits", "type": "timeseries",
+    "gridPos": { "x": 8, "y": 8, "w": 8, "h": 5 },
+    "fieldConfig": { "defaults": { "unit": "s" } },
+    "targets": [{
+      "expr": "histogram_quantile(0.99, sum by (le) (rate(murmur_job_wait_seconds_bucket[20s])))",
+      "legendFormat": "p99 of the jobs that ran"
+    }, {
+      "expr": "histogram_quantile(0.5, sum by (le) (rate(murmur_job_wait_seconds_bucket[20s])))",
+      "legendFormat": "p50 of the jobs that ran"
+    }, {
+      "expr": "max(murmur_queue_oldest_seconds)",
+      "legendFormat": "the oldest job still waiting"
+    }]
+  },
+  {
+    "title": "Postgres connections in use", "type": "timeseries",
+    "gridPos": { "x": 16, "y": 8, "w": 8, "h": 5 },
+    "fieldConfig": { "defaults": { "unit": "short" } },
+    "targets": [{
+      "expr": "murmur_db_pool_in_use_connections",
+      "legendFormat": "{{instance}}"
+    }, {
+      "expr": "max(murmur_db_pool_max_connections{job=\"api\"})",
+      "legendFormat": "an API pool is full at"
+    }]
+  },
+  {
+    "title": "A call to Redis, p99", "type": "timeseries",
+    "gridPos": { "x": 0, "y": 13, "w": 8, "h": 4 },
+    "fieldConfig": { "defaults": { "unit": "s" } },
+    "targets": [{
+      "expr": "histogram_quantile(0.99, sum by (le, command) (rate(murmur_redis_call_seconds_bucket[20s])))",
+      "legendFormat": "{{command}}"
+    }]
+  },
+  {
+    "title": "Calls to Redis that failed, a second", "type": "timeseries",
+    "gridPos": { "x": 8, "y": 13, "w": 8, "h": 4 },
+    "fieldConfig": { "defaults": { "unit": "short" } },
+    "targets": [{
+      "expr": "sum by (instance, command) (rate(murmur_redis_errors_total[20s]))",
+      "legendFormat": "{{instance}} {{command}}"
+    }]
+  },
+  {
+    "title": "Live streams", "type": "timeseries",
+    "gridPos": { "x": 16, "y": 13, "w": 8, "h": 4 },
+    "fieldConfig": { "defaults": { "unit": "short" } },
+    "targets": [{
+      "expr": "murmur_live_streams",
+      "legendFormat": "open on {{instance}}"
+    }, {
+      "expr": "sum(murmur_live_dropped_total)",
+      "legendFormat": "dropped, since the start"
+    }]
+  }
+  ]
+}

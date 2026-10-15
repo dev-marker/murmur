@@ -1,0 +1,10 @@
+# Grafana reads this when it starts: one data source, our Prometheus.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 5s

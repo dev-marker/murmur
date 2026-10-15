@@ -19,6 +19,7 @@ import (
 	"github.com/fiston-user/murmur/internal/likes"
 	"github.com/fiston-user/murmur/internal/live"
 	"github.com/fiston-user/murmur/internal/notify"
+	"github.com/fiston-user/murmur/internal/platform/metrics"
 	"github.com/fiston-user/murmur/internal/platform/postgres"
 	"github.com/fiston-user/murmur/internal/platform/redisx"
 	"github.com/fiston-user/murmur/internal/posts"
@@ -54,12 +55,16 @@ func run() error {
 	if err := postgres.Migrate(url); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
+	reg := metrics.New()
+	metrics.Pool(reg, pool)
+	reg.MustRegister(metrics.NewQueue(pool))
 
 	rdb, err := redisx.Connect(ctx, os.Getenv("REDIS_URL"))
 	if err != nil {
 		return fmt.Errorf("connect to redis: %w", err)
 	}
 	defer rdb.Close()
+	metrics.Redis(reg, rdb)
 	big, err := strconv.Atoi(cmp.Or(os.Getenv("BIG_ACCOUNT"), "1000"))
 	if err != nil {
 		return fmt.Errorf("BIG_ACCOUNT: %w", err)
@@ -79,6 +84,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	const away = "1 while this limit is counted in this server's memory, because Redis is away."
+	metrics.Gauge(reg, "murmur_ratelimit_fallback", away, perIP.Away, "limit", "ip")
+	metrics.Gauge(reg, "murmur_ratelimit_fallback", away, perUser.Away, "limit", "user")
 	byUser := func(r *http.Request) string { return strconv.FormatInt(users.ID(r.Context()), 10) }
 
 	mux := http.NewServeMux()
@@ -104,21 +112,29 @@ func run() error {
 	mux.HandleFunc("GET /feed", authed(f.List))
 	hub := live.NewHub()
 	go hub.Subscribe(ctx, rdb)
-	go hub.Report(ctx, 5*time.Second)
+	metrics.Gauge(reg, "murmur_live_streams", "Streams that are open on this server.", hub.Open)
+	metrics.Counter(reg, "murmur_live_dropped_total", "Streams we let go of.", hub.Dropped)
 	lv := &live.Handler{Done: ctx.Done(), Hub: hub, User: users.ID, Missed: n.Since}
 	mux.HandleFunc("GET /live", authed(lv.Stream))
+	measured := metrics.NewHTTP(reg)
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           ratelimit.Limit(perIP, trusted.ByIP, mux.ServeHTTP),
+		Handler:           measured.Wrap(ratelimit.Limit(perIP, trusted.ByIP, mux.ServeHTTP)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       time.Minute,
 	}
-	errc := make(chan error, 1)
+	errc := make(chan error, 2)
 	go func() { errc <- srv.ListenAndServe() }()
-	slog.Info("listening", "addr", addr)
+	private := cmp.Or(os.Getenv("PRIVATE_ADDR"), ":9081")
+	go func() {
+		if err := metrics.Serve(ctx, private, reg); err != nil {
+			errc <- err
+		}
+	}()
+	slog.Info("listening", "addr", addr, "private", private)
 
 	select {
 	case err := <-errc:
@@ -135,7 +151,7 @@ func run() error {
 // limiter makes a rate limiter from two settings, or from their defaults. For "ip",
 // IP_BURST is how many requests may come at once, and IP_PER_MINUTE is the steady rate.
 // The buckets live in Redis, and in this server's memory while Redis is away.
-func limiter(rdb *redis.Client, name string, burst, perMinute int) (ratelimit.Allower, error) {
+func limiter(rdb *redis.Client, name string, burst, perMinute int) (*ratelimit.Fallback, error) {
 	var err error
 	if burst, err = setting(strings.ToUpper(name)+"_BURST", burst); err != nil {
 		return nil, err

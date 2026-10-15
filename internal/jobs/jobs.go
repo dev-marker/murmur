@@ -56,10 +56,17 @@ type Worker struct {
 	handlers map[string]Handler
 	done     tally
 	now      func() time.Time // the worker's clock. A test can set its own
+
+	// Ended hears about every job that ends: how long it waited, how long it ran,
+	// and the error if it failed. Nobody has to listen.
+	Ended func(kind string, waited, ran time.Duration, err error)
 }
 
 func NewWorker(db *pgxpool.Pool) *Worker {
-	return &Worker{db: db, handlers: map[string]Handler{}, now: time.Now}
+	return &Worker{
+		db: db, handlers: map[string]Handler{}, now: time.Now,
+		Ended: func(string, time.Duration, time.Duration, error) {},
+	}
 }
 
 // Handle says which func runs jobs of this kind.
@@ -127,12 +134,14 @@ func (w *Worker) RunOne(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("claim a job: %w", err)
 	}
+	start := w.now()
 	h, ok := w.handlers[j.kind]
 	if !ok {
 		err = errors.New("no handler")
 	} else {
 		err = h(ctx, j.payload)
 	}
+	w.Ended(j.kind, start.Sub(j.queued), w.now().Sub(start), err)
 	if err != nil {
 		back := w.fail(ctx, j, err)
 		err = fmt.Errorf("job %d (%s), attempt %d of %d: %w", j.id, j.kind, j.attempt, MaxAttempts, err)

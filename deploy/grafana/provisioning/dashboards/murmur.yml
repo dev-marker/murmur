@@ -1,0 +1,7 @@
+# And every dashboard that is a JSON file in this folder.
+apiVersion: 1
+providers:
+  - name: murmur
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

@@ -15,6 +15,7 @@ import (
 	"github.com/fiston-user/murmur/internal/jobs"
 	"github.com/fiston-user/murmur/internal/likes"
 	"github.com/fiston-user/murmur/internal/notify"
+	"github.com/fiston-user/murmur/internal/platform/metrics"
 	"github.com/fiston-user/murmur/internal/platform/postgres"
 	"github.com/fiston-user/murmur/internal/platform/redisx"
 	"github.com/fiston-user/murmur/internal/timeline"
@@ -45,12 +46,15 @@ func run() error {
 		return fmt.Errorf("connect to postgres: %w", err)
 	}
 	defer pool.Close()
+	reg := metrics.New()
+	metrics.Pool(reg, pool)
 
 	rdb, err := redisx.Connect(ctx, os.Getenv("REDIS_URL"))
 	if err != nil {
 		return fmt.Errorf("connect to redis: %w", err)
 	}
 	defer rdb.Close()
+	metrics.Redis(reg, rdb)
 	big, err := strconv.Atoi(cmp.Or(os.Getenv("BIG_ACCOUNT"), "1000"))
 	if err != nil {
 		return fmt.Errorf("BIG_ACCOUNT: %w", err)
@@ -66,10 +70,18 @@ func run() error {
 	}
 
 	w := jobs.NewWorker(pool)
+	w.Ended = metrics.Jobs(reg)
 	w.Handle(timeline.FanOut, timelines.RunFanOut)
 	w.Handle(notify.Like, notify.New(pool, rdb).RunLike)
 	go likes.FoldEvery(ctx, pool, time.Second)
-	slog.Info("working", "workers", workers, "connections", pool.Config().MaxConns)
+	private := cmp.Or(os.Getenv("PRIVATE_ADDR"), ":9101")
+	go func() {
+		if err := metrics.Serve(ctx, private, reg); err != nil {
+			slog.Error("the private port is closed", "error", err)
+			stop()
+		}
+	}()
+	slog.Info("working", "workers", workers, "connections", pool.Config().MaxConns, "private", private)
 	w.Run(ctx, workers, time.Second, timeout, grace)
 	slog.Info("shutting down")
 	return nil

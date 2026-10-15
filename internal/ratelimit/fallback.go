@@ -55,3 +55,11 @@ func (f *Fallback) Allow(ctx context.Context, key string) (Result, error) {
 	}
 	return f.spare.Allow(ctx, key)
 }
+
+// Away is 1 while the shared limiter is left alone and the spare answers, and 0 otherwise.
+func (f *Fallback) Away() int {
+	if f.until.Load() != 0 {
+		return 1
+	}
+	return 0
+}

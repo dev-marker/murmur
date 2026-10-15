@@ -1,12 +1,8 @@
 package live
 
 import (
-	"context"
 	"encoding/json"
-	"log/slog"
-	"runtime"
 	"sync"
-	"time"
 )
 
 // An Event is one piece of news for one user. An ID is something a client can
@@ -78,31 +74,20 @@ func (h *Hub) Reset() {
 	}
 }
 
-// Report logs how many streams are open on this server and what the whole process
-// uses for them, once at the start and then whenever the numbers have changed.
-func (h *Hub) Report(ctx context.Context, every time.Duration) {
-	tick := time.NewTicker(every)
-	defer tick.Stop()
-	was := [2]int{-1, 0} // so the first look is always logged
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
-		h.mu.Lock()
-		now := [2]int{0, h.dropped}
-		for _, open := range h.streams {
-			now[0] += len(open)
-		}
-		h.mu.Unlock()
-		if now == was {
-			continue
-		}
-		was = now
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
-		mb := (m.HeapInuse + m.StackInuse) >> 20
-		slog.Info("hub", "open", now[0], "dropped", now[1], "goroutines", runtime.NumGoroutine(), "mb", mb)
+// Open is how many streams are open on this server, right now.
+func (h *Hub) Open() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, open := range h.streams {
+		n += len(open)
 	}
+	return n
+}
+
+// Dropped is how many streams this server has let go of, because they fell behind.
+func (h *Hub) Dropped() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.dropped
 }

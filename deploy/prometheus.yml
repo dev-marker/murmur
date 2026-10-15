@@ -1,0 +1,15 @@
+# Who Prometheus asks for numbers, and how often.
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: api
+    static_configs:
+      - targets: ["host.docker.internal:9081"]
+        labels: { instance: api-1 }
+      - targets: ["host.docker.internal:9082"]
+        labels: { instance: api-2 }
+  - job_name: worker
+    static_configs:
+      - targets: ["host.docker.internal:9101"]
+        labels: { instance: worker-1 }

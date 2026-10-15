@@ -9,7 +9,7 @@ export DATABASE_URL REDIS_URL TRUSTED_PROXIES
 
 .PHONY: up down run test seed load explain redis worker jobs claim dead retry poison
 
-# start Postgres, Redis and nginx
+# start Postgres, Redis, nginx, Prometheus (localhost:9090) and Grafana (localhost:3000)
 up:
 	docker compose up -d --wait
 
@@ -20,11 +20,13 @@ down:
 # build the API into bin/ and run it. A second server, for nginx: make run ADDR=:8082
 # the rate limits are settings: make run USER_BURST=3 USER_PER_MINUTE=12
 # for load tests, where k6 sends every user from one address: make run IP_PER_MINUTE=6000000
+# metrics and the profiler are on a private port, 9081. The second server needs its own:
+# make run ADDR=:8082 PRIVATE_ADDR=:9082
 run:
 	go build -o bin/api ./cmd/api
 	./bin/api
 
-# build the worker into bin/ and run it
+# build the worker into bin/ and run it. Its private port is 9101
 worker:
 	go build -o bin/worker ./cmd/worker
 	./bin/worker
