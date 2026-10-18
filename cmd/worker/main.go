@@ -15,6 +15,7 @@ import (
 	"github.com/fiston-user/murmur/internal/jobs"
 	"github.com/fiston-user/murmur/internal/likes"
 	"github.com/fiston-user/murmur/internal/notify"
+	"github.com/fiston-user/murmur/internal/platform/health"
 	"github.com/fiston-user/murmur/internal/platform/metrics"
 	"github.com/fiston-user/murmur/internal/platform/postgres"
 	"github.com/fiston-user/murmur/internal/platform/redisx"
@@ -23,13 +24,21 @@ import (
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-	if err := run(); err != nil {
+	private := cmp.Or(os.Getenv("PRIVATE_ADDR"), ":9101")
+	if len(os.Args) > 1 && os.Args[1] == "ready" {
+		if err := health.Probe(private); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if err := run(private); err != nil {
 		slog.Error("worker stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(private string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -74,9 +83,9 @@ func run() error {
 	w.Handle(timeline.FanOut, timelines.RunFanOut)
 	w.Handle(notify.Like, notify.New(pool, rdb).RunLike)
 	go likes.FoldEvery(ctx, pool, time.Second)
-	private := cmp.Or(os.Getenv("PRIVATE_ADDR"), ":9101")
+	hl := health.New(pool.Ping)
 	go func() {
-		if err := metrics.Serve(ctx, private, reg); err != nil {
+		if err := metrics.Serve(ctx, private, reg, hl.Routes); err != nil {
 			slog.Error("the private port is closed", "error", err)
 			stop()
 		}

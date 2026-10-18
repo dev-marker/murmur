@@ -4,12 +4,14 @@ global:
 
 scrape_configs:
   - job_name: api
-    static_configs:
-      - targets: ["host.docker.internal:9081"]
-        labels: { instance: api-1 }
-      - targets: ["host.docker.internal:9082"]
-        labels: { instance: api-2 }
+    dns_sd_configs:
+      - names: ["api"]
+        type: A
+        port: 9081
+        refresh_interval: 5s
   - job_name: worker
-    static_configs:
-      - targets: ["host.docker.internal:9101"]
-        labels: { instance: worker-1 }
+    dns_sd_configs:
+      - names: ["worker"]
+        type: A
+        port: 9101
+        refresh_interval: 5s

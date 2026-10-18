@@ -1,4 +1,4 @@
-// Every load test in this course ends with the same four numbers.
+// Every load test in this course ends with the same four numbers, and a count.
 export function handleSummary(data) {
   const m = data.metrics;
   const ms = (v) => `${v.toFixed(1)} ms`;
@@ -7,6 +7,7 @@ export function handleSummary(data) {
     `p50                  ${ms(m.http_req_duration.values.med)}`,
     `p99                  ${ms(m.http_req_duration.values['p(99)'])}`,
     `errors               ${(m.http_req_failed.values.rate * 100).toFixed(2)} %`,
+    `failed               ${m.http_req_failed.values.passes} of ${m.http_reqs.values.count}`,
   ];
   return { stdout: `\n${lines.join('\n')}\n\n` };
 }

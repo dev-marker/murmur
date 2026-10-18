@@ -19,6 +19,7 @@ import (
 	"github.com/fiston-user/murmur/internal/likes"
 	"github.com/fiston-user/murmur/internal/live"
 	"github.com/fiston-user/murmur/internal/notify"
+	"github.com/fiston-user/murmur/internal/platform/health"
 	"github.com/fiston-user/murmur/internal/platform/metrics"
 	"github.com/fiston-user/murmur/internal/platform/postgres"
 	"github.com/fiston-user/murmur/internal/platform/redisx"
@@ -31,13 +32,21 @@ import (
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-	if err := run(); err != nil {
+	private := cmp.Or(os.Getenv("PRIVATE_ADDR"), ":9081")
+	if len(os.Args) > 1 && os.Args[1] == "ready" {
+		if err := health.Probe(private); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if err := run(private); err != nil {
 		slog.Error("murmur stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(private string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -55,6 +64,7 @@ func run() error {
 	if err := postgres.Migrate(url); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
+	hl := health.New(pool.Ping)
 	reg := metrics.New()
 	metrics.Pool(reg, pool)
 	reg.MustRegister(metrics.NewQueue(pool))
@@ -128,9 +138,11 @@ func run() error {
 	}
 	errc := make(chan error, 2)
 	go func() { errc <- srv.ListenAndServe() }()
-	private := cmp.Or(os.Getenv("PRIVATE_ADDR"), ":9081")
+	// the private port outlives the signal: it says "not ready" while we shut down
+	life, end := context.WithCancel(context.Background())
+	defer end()
 	go func() {
-		if err := metrics.Serve(ctx, private, reg); err != nil {
+		if err := metrics.Serve(life, private, reg, hl.Routes); err != nil {
 			errc <- err
 		}
 	}()
@@ -143,6 +155,7 @@ func run() error {
 		stop()
 	}
 	slog.Info("shutting down")
+	hl.Leave()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)

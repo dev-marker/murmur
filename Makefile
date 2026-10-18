@@ -1,27 +1,38 @@
 # Local development. The API reads DATABASE_URL and REDIS_URL from the environment.
 DATABASE_URL ?= postgres://murmur:murmur@localhost:5432/murmur?sslmode=disable&connect_timeout=5
 REDIS_URL ?= redis://localhost:6379/0
-# The one proxy the API believes about X-Forwarded-For is nginx (make up). With Docker
-# Desktop, its connections reach the API from this machine itself. On another setup,
-# put the address your API sees them come from.
+# The proxy that a server run by hand believes (make run). The containers get their settings
+# from docker-compose.yml, and they believe the Compose network.
 TRUSTED_PROXIES ?= 127.0.0.1/32
 export DATABASE_URL REDIS_URL TRUSTED_PROXIES
 
-.PHONY: up down run test seed load explain redis worker jobs claim dead retry poison
+.PHONY: up down run test seed load explain redis worker jobs claim dead retry poison ps roll
 
-# start Postgres, Redis, nginx, Prometheus (localhost:9090) and Grafana (localhost:3000)
+# build our image and start everything: Postgres, Redis, two API servers, the worker, nginx,
+# Prometheus (localhost:9090) and Grafana (localhost:3000). For load tests: make up IP_PER_MINUTE=6000000
 up:
-	docker compose up -d --wait
+	docker compose up -d --build --wait
 
 # stop them (the data stays in its volume)
 down:
 	docker compose down
 
-# build the API into bin/ and run it. A second server, for nginx: make run ADDR=:8082
+# what is running, and how each service says it is doing
+ps:
+	@docker compose ps --format "table {{.Service}}\t{{.Status}}"
+
+# restart the API servers one at a time: the next one goes when the last one is ready again
+roll:
+	@for c in $$(docker compose ps -q api); do \
+		docker restart $$c > /dev/null; \
+		until [ "$$(docker inspect -f '{{.State.Health.Status}}' $$c)" = healthy ]; do sleep 0.2; done; \
+		echo "$$(docker inspect -f '{{.Name}}' $$c | cut -c2-) is back, and ready"; \
+	done
+
+# one API server by hand, outside Docker, to work on it: it builds into bin/ and listens on 8081.
+# nginx doesn't know it, so talk to it directly: curl localhost:8081/users/user1/posts
 # the rate limits are settings: make run USER_BURST=3 USER_PER_MINUTE=12
-# for load tests, where k6 sends every user from one address: make run IP_PER_MINUTE=6000000
-# metrics and the profiler are on a private port, 9081. The second server needs its own:
-# make run ADDR=:8082 PRIVATE_ADDR=:9082
+# metrics, the profiler, /healthz and /readyz are on its private port, 9081
 run:
 	go build -o bin/api ./cmd/api
 	./bin/api
@@ -40,7 +51,7 @@ seed:
 	go run ./cmd/seed --users 100000 --seed 1
 
 # run a k6 script from load/, in Docker: make load S=feed
-# it goes through nginx. One server, directly: make load S=feed BASE_URL=http://host.docker.internal:8081
+# it goes through nginx. Past nginx, straight to the API servers: make load S=feed BASE_URL=http://api:8081
 # a like storm on one post: make load S=likes POST=2000002
 load:
 	docker compose run --rm -e BASE_URL -e VUS -e READERS -e AUTHORS -e FIRST -e POSTS -e RATE -e POST \

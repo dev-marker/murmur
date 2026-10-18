@@ -24,8 +24,9 @@ func New() *prometheus.Registry {
 
 // Serve answers on a port of its own, away from the API's, until ctx is cancelled.
 // Nothing on it is for clients, so the load balancer doesn't know this port.
-func Serve(ctx context.Context, addr string, reg *prometheus.Registry) error {
+func Serve(ctx context.Context, addr string, reg *prometheus.Registry, more func(*http.ServeMux)) error {
 	mux := http.NewServeMux()
+	more(mux)
 	mux.Handle("GET /metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.HandleFunc("GET /debug/pprof/", pprof.Index)
 	mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)

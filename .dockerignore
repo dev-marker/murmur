@@ -1,0 +1,7 @@
+# Docker sends nothing to a build but what's listed here.
+*
+!go.mod
+!go.sum
+!cmd
+!db
+!internal
