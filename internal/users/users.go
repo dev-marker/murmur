@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/fiston-user/murmur/internal/platform/httpx"
 	"github.com/fiston-user/murmur/internal/timeline"
@@ -23,10 +25,22 @@ var validHandle = regexp.MustCompile(`^[a-z0-9_]{3,20}$`)
 type Handler struct {
 	db *pgxpool.Pool
 	tl *timeline.Store
+
+	// Remember is how long a token that we looked up is believed.
+	// Zero means every request asks Postgres, like before.
+	Remember time.Duration
+	now      func() time.Time
+	known    sync.Map // token hash -> session
+}
+
+// A session is what we remember about a token.
+type session struct {
+	user  int64
+	until time.Time
 }
 
 func New(db *pgxpool.Pool, tl *timeline.Store) *Handler {
-	return &Handler{db: db, tl: tl}
+	return &Handler{db: db, tl: tl, now: time.Now}
 }
 
 // Create signs a user up and answers with a token, shown once.
@@ -70,6 +84,10 @@ func (h *Handler) Auth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		hash := sha256.Sum256([]byte(token))
+		if s, ok := h.known.Load(hash); ok && h.now().Before(s.(session).until) {
+			next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, s.(session).user)))
+			return
+		}
 
 		var id int64
 		err := h.db.QueryRow(r.Context(), `select id from users where token_hash = $1`, hash[:]).Scan(&id)
@@ -80,6 +98,9 @@ func (h *Handler) Auth(next http.HandlerFunc) http.HandlerFunc {
 		if err != nil {
 			httpx.ServerError(w, r, err)
 			return
+		}
+		if h.Remember > 0 {
+			h.known.Store(hash, session{user: id, until: h.now().Add(h.Remember)})
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, id)))
 	}

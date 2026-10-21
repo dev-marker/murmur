@@ -20,6 +20,9 @@ func Connect(ctx context.Context, url string, conns int) (*pgxpool.Pool, error) 
 		return nil, err
 	}
 	cfg.MaxConns = max(cfg.MaxConns, int32(conns))
+	// Our statements look rows up by a key, so one plan fits every call.
+	// Left to itself, Postgres plans some of them again and again.
+	cfg.ConnConfig.RuntimeParams["plan_cache_mode"] = "force_generic_plan"
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err

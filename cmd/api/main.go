@@ -101,6 +101,7 @@ func run(private string) error {
 
 	mux := http.NewServeMux()
 	u := users.New(pool, timelines)
+	u.Remember = time.Minute
 	// Signed in: first who it is, then if they have a token left.
 	authed := func(next http.HandlerFunc) http.HandlerFunc {
 		return u.Auth(ratelimit.Limit(perUser, byUser, next))

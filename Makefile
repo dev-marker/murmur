@@ -53,9 +53,10 @@ seed:
 # run a k6 script from load/, in Docker: make load S=feed
 # it goes through nginx. Past nginx, straight to the API servers: make load S=feed BASE_URL=http://api:8081
 # a like storm on one post: make load S=likes POST=2000002
+# the mix at 1,500 requests a second, for a minute: make load S=mix RATE=1500 TIME=60s
 load:
 	docker compose run --rm -e BASE_URL -e VUS -e READERS -e AUTHORS -e FIRST -e POSTS -e RATE -e POST \
-		k6 run /load/$(S).js
+		-e TIME -e SPIKE -e STAR k6 run /load/$(S).js
 
 # what Postgres does to build one user's feed: make explain U=42
 Q ?= feed
@@ -154,3 +155,26 @@ likes:
 followers:
 	@docker compose exec -T postgres psql -U murmur -Atc \
 		"select follower_id from follows where followee_id = $(OF) order by 1"
+
+.PHONY: ramp statements
+
+# the mix at one rate after another, half a minute each: make ramp RATES="1000 2000 3000"
+# between two steps it rests, so that a laptop can cool down
+RATES ?= 1000 1500 2000 2500 3000 3500
+REST ?= 30
+ramp:
+	@for r in $(RATES); do \
+		docker compose run --rm -T -e BASE_URL -e RATE=$$r k6 run -q /load/mix.js 2> /dev/null; \
+		sleep $(REST); \
+	done
+
+# what Postgres spent its time on, statement by statement, since the last time anybody asked:
+# it prints the list, and then it starts counting from zero again
+statements:
+	@docker compose exec -T postgres psql -U murmur -q \
+		-c "set client_min_messages = warning" \
+		-c "create extension if not exists pg_stat_statements" \
+		-c "select left(regexp_replace(query, '\s+', ' ', 'g'), 52) as statement, calls, plans, \
+			round(total_plan_time) as plan_ms, round(total_exec_time) as exec_ms \
+			from pg_stat_statements order by total_plan_time + total_exec_time desc limit 6" \
+		-c "select pg_stat_statements_reset()" | grep -E "\||-\+-"
