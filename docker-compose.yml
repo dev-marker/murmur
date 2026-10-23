@@ -12,11 +12,31 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./deploy/primary.sh:/docker-entrypoint-initdb.d/primary.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U murmur"]
       interval: 2s
       timeout: 2s
       retries: 15
+
+  # a copy of the database that follows the primary, for reads that may be a moment old
+  replica:
+    image: postgres:17-alpine
+    entrypoint: ["sh", "/replica.sh"]
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements",
+              "-c", "pg_stat_statements.track_planning=on", "-c", "wal_receiver_status_interval=1s"]
+    volumes:
+      - replicadata:/var/lib/postgresql/data
+      - ./deploy/replica.sh:/replica.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U murmur"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 10m
 
   # a cache: everything in it can be rebuilt from Postgres, so nothing is saved to disk
   redis:
@@ -35,15 +55,18 @@ services:
     build: .
     image: murmur
     deploy:
-      replicas: 2
+      replicas: ${API:-2}
     environment:
       DATABASE_URL: postgres://murmur:murmur@postgres:5432/murmur?sslmode=disable&connect_timeout=5
+      REPLICA_URL: postgres://murmur:murmur@replica:5432/murmur?sslmode=disable&connect_timeout=5
       REDIS_URL: redis://redis:6379/0
       TRUSTED_PROXIES: 172.30.0.0/24
       IP_PER_MINUTE: ${IP_PER_MINUTE:-3000}
       IP_BURST: ${IP_BURST:-100}
     depends_on:
       postgres:
+        condition: service_healthy
+      replica:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -59,6 +82,8 @@ services:
   worker:
     image: murmur
     entrypoint: ["/worker"]
+    deploy:
+      replicas: ${WORKER:-1}
     environment:
       DATABASE_URL: postgres://murmur:murmur@postgres:5432/murmur?sslmode=disable&connect_timeout=5
       REDIS_URL: redis://redis:6379/0
@@ -139,3 +164,4 @@ networks:
 volumes:
   pgdata:
   promdata:
+  replicadata:

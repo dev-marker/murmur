@@ -15,6 +15,7 @@ import (
 	"github.com/fiston-user/murmur/internal/jobs"
 	"github.com/fiston-user/murmur/internal/likes"
 	"github.com/fiston-user/murmur/internal/notify"
+	"github.com/fiston-user/murmur/internal/platform/replica"
 	"github.com/fiston-user/murmur/internal/platform/testdb"
 	"github.com/fiston-user/murmur/internal/posts"
 	"github.com/fiston-user/murmur/internal/timeline"
@@ -33,7 +34,9 @@ type app struct {
 
 func newApp(t *testing.T) *app {
 	db := testdb.New(t)
-	u, p, l, n := users.New(db, nil), posts.New(db), likes.New(db), notify.New(db, testdb.Redis(t))
+	reads := replica.New(db, nil, nil) // no replica: every read goes to db
+	u, p, l := users.New(db, nil), posts.New(db, reads), likes.New(db)
+	n := notify.New(db, testdb.Redis(t))
 	w := jobs.NewWorker(db)
 	w.Handle(notify.Like, n.RunLike)
 	// A post queues a fan-out job as well. Nobody follows anybody here, so there's nothing to do.

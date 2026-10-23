@@ -106,6 +106,19 @@ func (h *Handler) Auth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// Maybe is Auth for a route that anybody may call. A caller with a token is
+// known, and a caller without one is nobody.
+func (h *Handler) Maybe(next http.HandlerFunc) http.HandlerFunc {
+	known := h.Auth(next)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			next(w, r)
+			return
+		}
+		known(w, r)
+	}
+}
+
 // ID returns the id of the user Auth let through.
 func ID(ctx context.Context) int64 {
 	id, _ := ctx.Value(ctxKey{}).(int64)

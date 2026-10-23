@@ -8,8 +8,9 @@ export DATABASE_URL REDIS_URL TRUSTED_PROXIES
 
 .PHONY: up down run test seed load explain redis worker jobs claim dead retry poison ps roll
 
-# build our image and start everything: Postgres, Redis, two API servers, the worker, nginx,
-# Prometheus (localhost:9090) and Grafana (localhost:3000). For load tests: make up IP_PER_MINUTE=6000000
+# build our image and start everything: Postgres and its replica, Redis, two API servers, the
+# worker, nginx, Prometheus (localhost:9090) and Grafana (localhost:3000). More of ours: make scale.
+# For load tests: make up IP_PER_MINUTE=6000000 IP_BURST=100000
 up:
 	docker compose up -d --build --wait
 
@@ -170,11 +171,35 @@ ramp:
 
 # what Postgres spent its time on, statement by statement, since the last time anybody asked:
 # it prints the list, and then it starts counting from zero again
+DB ?= postgres
 statements:
-	@docker compose exec -T postgres psql -U murmur -q \
+	@docker compose exec -T $(DB) psql -U murmur -q \
 		-c "set client_min_messages = warning" \
-		-c "create extension if not exists pg_stat_statements" \
+		$(if $(filter replica,$(DB)),,-c "create extension if not exists pg_stat_statements") \
 		-c "select left(regexp_replace(query, '\s+', ' ', 'g'), 52) as statement, calls, plans, \
 			round(total_plan_time) as plan_ms, round(total_exec_time) as exec_ms \
 			from pg_stat_statements order by total_plan_time + total_exec_time desc limit 6" \
 		-c "select pg_stat_statements_reset()" | grep -E "\||-\+-"
+
+.PHONY: scale drained lag pause resume
+
+# more API servers or workers, or fewer: make scale API=4 WORKER=3. Nothing is built, and the
+# containers that already run are left alone. make scale on its own goes back to two and one
+scale:
+	docker compose up -d --wait --no-build
+
+# wait until the queue is empty: time make drained says how long that took
+drained:
+	@until docker compose exec -T postgres psql -U murmur -Atc \
+		"select count(*) from jobs where status <> 'dead'" | grep -qx 0; do sleep 0.5; done
+
+# how far behind the replica is: what the primary has sent it, and what it hasn't replayed yet
+lag:
+	@docker compose exec -T postgres psql -U murmur -c "select state, \
+		pg_wal_lsn_diff(sent_lsn, replay_lsn) as bytes_behind, replay_lag from pg_stat_replication"
+
+# for a demo: the replica keeps receiving the log, and stops replaying it. make resume undoes it
+pause:
+	@docker compose exec -T replica psql -U murmur -Atc "select pg_wal_replay_pause()"
+resume:
+	@docker compose exec -T replica psql -U murmur -Atc "select pg_wal_replay_resume()"

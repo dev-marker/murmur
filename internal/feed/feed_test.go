@@ -12,6 +12,7 @@ import (
 
 	"github.com/fiston-user/murmur/internal/feed"
 	"github.com/fiston-user/murmur/internal/jobs"
+	"github.com/fiston-user/murmur/internal/platform/replica"
 	"github.com/fiston-user/murmur/internal/platform/testdb"
 	"github.com/fiston-user/murmur/internal/posts"
 	"github.com/fiston-user/murmur/internal/timeline"
@@ -31,7 +32,8 @@ type client struct {
 func newClient(t *testing.T) *client {
 	db, rdb := testdb.New(t), testdb.Redis(t)
 	tl := timeline.New(db, rdb, 2)
-	u, p, f := users.New(db, tl), posts.New(db), feed.New(db, tl)
+	reads := replica.New(db, nil, rdb) // no replica: every read goes to db
+	u, p, f := users.New(db, tl), posts.New(db, reads), feed.New(reads, tl)
 	w := jobs.NewWorker(db)
 	w.Handle(timeline.FanOut, tl.RunFanOut)
 	mux := http.NewServeMux()

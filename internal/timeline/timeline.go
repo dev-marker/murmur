@@ -92,7 +92,8 @@ func (s *Store) RunFanOut(ctx context.Context, payload []byte) error {
 }
 
 // Page returns up to n post ids below cursor from a reader's feed, newest first.
-func (s *Store) Page(ctx context.Context, user, cursor int64, n int) ([]int64, error) {
+// What Redis doesn't hold is read from db. A missing timeline is built on the primary.
+func (s *Store) Page(ctx context.Context, db *pgxpool.Pool, user, cursor int64, n int) ([]int64, error) {
 	below := redis.ZRangeArgs{
 		Key: key(user), Start: "(" + strconv.FormatInt(cursor, 10), Stop: 0,
 		ByScore: true, Rev: true, Count: int64(n),
@@ -108,9 +109,9 @@ func (s *Store) Page(ctx context.Context, user, cursor int64, n int) ([]int64, e
 		return nil, err
 	}
 	if len(ids) < n || ids[n-1] == 0 { // the timeline ends here: Postgres has the rest
-		return s.fromFollows(ctx, user, cursor, n, 0)
+		return s.fromFollows(ctx, db, user, cursor, n, 0)
 	}
-	pulled, err := s.fromFollows(ctx, user, cursor, n, s.big)
+	pulled, err := s.fromFollows(ctx, db, user, cursor, n, s.big)
 	if err != nil {
 		return nil, err
 	}
@@ -128,8 +129,10 @@ func merge(a, b []int64, n int) []int64 {
 
 // fromFollows is the slow way to a feed, straight from Postgres: the newest posts
 // of every followed account with at least atLeast followers, sorted together.
-func (s *Store) fromFollows(ctx context.Context, user, cursor int64, n, atLeast int) ([]int64, error) {
-	rows, _ := s.db.Query(ctx, `
+func (s *Store) fromFollows(
+	ctx context.Context, db *pgxpool.Pool, user, cursor int64, n, atLeast int,
+) ([]int64, error) {
+	rows, _ := db.Query(ctx, `
 		select p.id
 		from follows f
 		join users u on u.id = f.followee_id and u.followers_count >= $4
@@ -153,7 +156,7 @@ func (s *Store) build(ctx context.Context, user int64) error {
 	if err := s.rdb.ZAdd(ctx, key(user), zs...).Err(); err != nil {
 		return err
 	}
-	ids, err := s.fromFollows(ctx, user, math.MaxInt64, Max, 0)
+	ids, err := s.fromFollows(ctx, s.db, user, math.MaxInt64, Max, 0)
 	if err != nil {
 		return err
 	}

@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/fiston-user/murmur/internal/platform/httpx"
+	"github.com/fiston-user/murmur/internal/platform/replica"
 	"github.com/fiston-user/murmur/internal/timeline"
 	"github.com/fiston-user/murmur/internal/users"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Post is one post in a feed, with its author's handle.
@@ -30,12 +30,12 @@ type Page struct {
 }
 
 type Handler struct {
-	db *pgxpool.Pool
-	tl *timeline.Store
+	reads *replica.Reads
+	tl    *timeline.Store
 }
 
-func New(db *pgxpool.Pool, tl *timeline.Store) *Handler {
-	return &Handler{db: db, tl: tl}
+func New(reads *replica.Reads, tl *timeline.Store) *Handler {
+	return &Handler{reads: reads, tl: tl}
 }
 
 // List returns a page of the caller's home feed, newest first.
@@ -55,12 +55,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		cursor = id
 	}
-	ids, err := h.tl.Page(r.Context(), users.ID(r.Context()), cursor, limit+1)
+	db := h.reads.For(r.Context(), users.ID(r.Context()))
+	ids, err := h.tl.Page(r.Context(), db, users.ID(r.Context()), cursor, limit+1)
 	if err != nil {
 		httpx.ServerError(w, r, err)
 		return
 	}
-	rows, _ := h.db.Query(r.Context(), `
+	rows, _ := db.Query(r.Context(), `
 		select p.id, u.handle, p.body, p.created_at, p.likes_count
 		from posts p
 		join users u on u.id = p.user_id

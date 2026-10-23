@@ -23,10 +23,12 @@ import (
 	"github.com/fiston-user/murmur/internal/platform/metrics"
 	"github.com/fiston-user/murmur/internal/platform/postgres"
 	"github.com/fiston-user/murmur/internal/platform/redisx"
+	"github.com/fiston-user/murmur/internal/platform/replica"
 	"github.com/fiston-user/murmur/internal/posts"
 	"github.com/fiston-user/murmur/internal/ratelimit"
 	"github.com/fiston-user/murmur/internal/timeline"
 	"github.com/fiston-user/murmur/internal/users"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -81,6 +83,17 @@ func run(private string) error {
 	}
 	timelines := timeline.New(pool, rdb, big)
 
+	// Reads that may be a moment old go to the replica, when there is one.
+	var spare *pgxpool.Pool
+	if url := os.Getenv("REPLICA_URL"); url != "" {
+		if spare, err = postgres.Connect(ctx, url, 0); err != nil {
+			return fmt.Errorf("connect to the replica: %w", err)
+		}
+		defer spare.Close()
+	}
+	reads := replica.New(pool, spare, rdb)
+	go reads.Watch(ctx)
+
 	trusted, err := proxies()
 	if err != nil {
 		return err
@@ -106,20 +119,27 @@ func run(private string) error {
 	authed := func(next http.HandlerFunc) http.HandlerFunc {
 		return u.Auth(ratelimit.Limit(perUser, byUser, next))
 	}
+	// A write marks its author first, so that their next reads go to the primary.
+	writes := func(next http.HandlerFunc) http.HandlerFunc {
+		return authed(func(w http.ResponseWriter, r *http.Request) {
+			reads.Wrote(r.Context(), users.ID(r.Context()))
+			next(w, r)
+		})
+	}
 	mux.HandleFunc("POST /users", u.Create)
-	mux.HandleFunc("POST /users/{handle}/follow", authed(u.Follow))
-	mux.HandleFunc("DELETE /users/{handle}/follow", authed(u.Unfollow))
-	p := posts.New(pool)
-	mux.HandleFunc("POST /posts", authed(p.Create))
-	mux.HandleFunc("GET /users/{handle}/posts", p.List)
+	mux.HandleFunc("POST /users/{handle}/follow", writes(u.Follow))
+	mux.HandleFunc("DELETE /users/{handle}/follow", writes(u.Unfollow))
+	p := posts.New(pool, reads)
+	mux.HandleFunc("POST /posts", writes(p.Create))
+	mux.HandleFunc("GET /users/{handle}/posts", u.Maybe(p.List))
 	l := likes.New(pool)
-	mux.HandleFunc("POST /posts/{id}/like", authed(l.Like))
-	mux.HandleFunc("DELETE /posts/{id}/like", authed(l.Unlike))
+	mux.HandleFunc("POST /posts/{id}/like", writes(l.Like))
+	mux.HandleFunc("DELETE /posts/{id}/like", writes(l.Unlike))
 	n := notify.New(pool, rdb)
 	mux.HandleFunc("GET /notifications", authed(n.List))
 	mux.HandleFunc("GET /notifications/unread", authed(n.Unread))
-	mux.HandleFunc("POST /notifications/read", authed(n.Read))
-	f := feed.New(pool, timelines)
+	mux.HandleFunc("POST /notifications/read", writes(n.Read))
+	f := feed.New(reads, timelines)
 	mux.HandleFunc("GET /feed", authed(f.List))
 	hub := live.NewHub()
 	go hub.Subscribe(ctx, rdb)

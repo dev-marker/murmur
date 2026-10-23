@@ -8,6 +8,7 @@ import (
 
 	"github.com/fiston-user/murmur/internal/jobs"
 	"github.com/fiston-user/murmur/internal/platform/httpx"
+	"github.com/fiston-user/murmur/internal/platform/replica"
 	"github.com/fiston-user/murmur/internal/timeline"
 	"github.com/fiston-user/murmur/internal/users"
 	"github.com/jackc/pgx/v5"
@@ -23,11 +24,12 @@ type Post struct {
 }
 
 type Handler struct {
-	db *pgxpool.Pool
+	db    *pgxpool.Pool
+	reads *replica.Reads
 }
 
-func New(db *pgxpool.Pool) *Handler {
-	return &Handler{db: db}
+func New(db *pgxpool.Pool, reads *replica.Reads) *Handler {
+	return &Handler{db: db, reads: reads}
 }
 
 // Create saves a post by the user who is calling.
@@ -61,7 +63,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 // List returns one user's posts, newest first, 20 at most.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	rows, _ := h.db.Query(r.Context(), `
+	rows, _ := h.reads.For(r.Context(), users.ID(r.Context())).Query(r.Context(), `
 		select id, user_id, body, created_at
 		from posts
 		where user_id = (select id from users where handle = $1)

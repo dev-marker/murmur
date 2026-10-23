@@ -290,3 +290,20 @@ Authorization: Bearer seed-token-115
 Content-Type: application/json
 
 { "body": "hello to all 966 of you" }
+
+### Episode 16: the quiet account posts
+# @name mine
+POST {{base}}/posts
+Authorization: Bearer seed-token-16726
+Content-Type: application/json
+
+{ "body": "did this make it?" }
+
+### and looks at its own page right away, as itself
+# @name myPage
+GET {{base}}/users/user16726/posts
+Authorization: Bearer seed-token-16726
+
+### The same page, read by anybody else
+# @name theirPage
+GET {{base}}/users/user16726/posts
