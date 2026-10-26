@@ -307,3 +307,39 @@ Authorization: Bearer seed-token-16726
 ### The same page, read by anybody else
 # @name theirPage
 GET {{base}}/users/user16726/posts
+
+### Episode 17: somebody new signs up
+# @name newcomer
+POST {{base}}/users
+Content-Type: application/json
+
+{ "handle": "newcomer" }
+
+### Whose token is this?
+# @name whoAmI
+GET {{base}}/me
+Authorization: Bearer {{newcomer.response.body.token}}
+
+### The newcomer's home feed
+# @name newFeed
+GET {{base}}/feed?limit=2
+Authorization: Bearer {{newcomer.response.body.token}}
+
+### The biggest account's profile, as the newcomer sees it
+# @name bigProfile
+GET {{base}}/users/user1
+Authorization: Bearer {{newcomer.response.body.token}}
+
+### A handle nobody has
+# @name noSuchUser
+GET {{base}}/users/nobody_here
+
+### Who should the newcomer follow?
+# @name whoToFollow
+GET {{base}}/suggestions
+Authorization: Bearer {{newcomer.response.body.token}}
+
+### The newcomer follows the biggest account
+# @name followBig
+POST {{base}}/users/user1/follow
+Authorization: Bearer {{newcomer.response.body.token}}

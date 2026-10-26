@@ -203,3 +203,20 @@ pause:
 	@docker compose exec -T replica psql -U murmur -Atc "select pg_wal_replay_pause()"
 resume:
 	@docker compose exec -T replica psql -U murmur -Atc "select pg_wal_replay_resume()"
+
+.PHONY: hot
+
+# a burst of follows, made the way the API makes them: two thousand people, from FROM on, follow
+# one account each. Then how many of the rows in users that changed were updated in place (HOT)
+FROM ?= 50000
+hot:
+	@docker compose exec -T postgres psql -U murmur -Atc \
+		"select pg_stat_reset_single_table_counters('users'::regclass)" > /dev/null
+	@docker compose exec -T postgres psql -U murmur -qc "with added as ( \
+		insert into follows (follower_id, followee_id) \
+		select g, 1 + (g * 7919) % 100000 from generate_series($(FROM), $(FROM) + 1999) g \
+		where 1 + (g * 7919) % 100000 <> g on conflict do nothing returning followee_id) \
+		update users set followers_count = followers_count + 1 where id in (select followee_id from added)"
+	@sleep 1
+	@docker compose exec -T postgres psql -U murmur -c "select n_tup_upd as updated, \
+		n_tup_hot_upd as in_place from pg_stat_user_tables where relname = 'users'"

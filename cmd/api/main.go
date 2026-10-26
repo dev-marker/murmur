@@ -127,6 +127,10 @@ func run(private string) error {
 		})
 	}
 	mux.HandleFunc("POST /users", u.Create)
+	pr := users.NewProfiles(pool, reads)
+	mux.HandleFunc("GET /me", authed(pr.Me))
+	mux.HandleFunc("GET /users/{handle}", u.Maybe(pr.Show))
+	mux.HandleFunc("GET /suggestions", authed(pr.Suggest))
 	mux.HandleFunc("POST /users/{handle}/follow", writes(u.Follow))
 	mux.HandleFunc("DELETE /users/{handle}/follow", writes(u.Unfollow))
 	p := posts.New(pool, reads)
