@@ -343,3 +343,42 @@ Authorization: Bearer {{newcomer.response.body.token}}
 # @name followBig
 POST {{base}}/users/user1/follow
 Authorization: Bearer {{newcomer.response.body.token}}
+
+### Episode 18: the top of a reader's feed
+# @name top
+GET {{base}}/feed?limit=1
+Authorization: Bearer seed-token-2000
+
+### The reader likes that post
+# @name likeTop
+POST {{base}}/posts/{{top.response.body.posts[0].id}}/like
+Authorization: Bearer seed-token-2000
+
+### The biggest account's posts, as anybody sees them
+# @name bigPosts
+GET {{base}}/users/user1/posts
+
+### Its first page, one post long, as the reader sees it
+# @name bigPage1
+GET {{base}}/users/user1/posts?limit=1
+Authorization: Bearer seed-token-2000
+
+### And the next page
+# @name bigPage2
+GET {{base}}/users/user1/posts?limit=1&cursor={{bigPage1.response.body.next_cursor}}
+Authorization: Bearer seed-token-2000
+
+### The quiet account's newest post, as the reader sees it
+# @name quietTop
+GET {{base}}/users/user16726/posts?limit=1
+Authorization: Bearer seed-token-2000
+
+### The reader likes it
+# @name likeQuiet
+POST {{base}}/posts/{{quietTop.response.body.posts[0].id}}/like
+Authorization: Bearer seed-token-2000
+
+### The quiet account hears about it
+# @name told
+GET {{base}}/notifications?limit=1
+Authorization: Bearer seed-token-16726

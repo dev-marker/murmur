@@ -102,6 +102,7 @@ type Notification struct {
 	PostID    int64     `json:"post_id"`
 	CreatedAt time.Time `json:"created_at"`
 	Unread    bool      `json:"unread"`
+	Body      string    `json:"body"` // of the post
 }
 
 // Page is one page of notifications. NextCursor is null on the last page.
@@ -128,10 +129,12 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		cursor = id
 	}
 	rows, _ := h.db.Query(r.Context(), `
-		select n.id, n.kind, a.handle, n.post_id, n.created_at, n.id > u.seen_notification
+		select n.id, n.kind, a.handle, n.post_id, n.created_at, n.id > u.seen_notification,
+			p.body
 		from notifications n
 		join users a on a.id = n.actor_id
 		join users u on u.id = n.user_id
+		join posts p on p.id = n.post_id
 		where n.user_id = $1 and n.id < $2
 		order by n.id desc
 		limit $3`, users.ID(r.Context()), cursor, limit+1)

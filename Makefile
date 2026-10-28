@@ -220,3 +220,25 @@ hot:
 	@sleep 1
 	@docker compose exec -T postgres psql -U murmur -c "select n_tup_upd as updated, \
 		n_tup_hot_upd as in_place from pg_stat_user_tables where relname = 'users'"
+
+.PHONY: plan counts
+
+# a whole plan, with what the planner expected next to what happened: make plan Q=posts U=1
+# (the lines about conditions and costs are left out)
+plan:
+	@docker compose exec -T postgres psql -U murmur -Aqt -v user=$(U) < db/explain/$(Q).sql \
+		| sed -E 's/cost=[^ ]+ //; s/ width=[0-9]+//' \
+		| grep -vE "Recheck|Heap Blocks|Index Cond|Filter|Planning|Sort Key|Bitmap Index|Heap Fetches"
+
+# what the seed made: how many of each, two accounts we know, and a fingerprint of who posted
+# when and of who follows whom. The same seed must give the same numbers
+counts:
+	@docker compose exec -T postgres psql -U murmur \
+		-c "select (select count(*) from users) as users, (select count(*) from follows) as follows, \
+			(select count(*) from posts) as posts, \
+			(select followers_count from users where id = 1) as user1_followers, \
+			(select count(*) from posts where user_id = 1) as user1_posts, \
+			(select followers_count from users where id = 16726) as quiet_followers" \
+		-c "select (select md5(string_agg(user_id || ' ' || created_at, ',' order by id)) from posts) \
+			as posts_md5, (select md5(string_agg(follower_id || ' ' || followee_id, ',' \
+			order by follower_id, followee_id)) from follows) as follows_md5"

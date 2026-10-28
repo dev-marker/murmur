@@ -119,11 +119,11 @@ func run(ctx context.Context, users int, seed uint64) error {
 	}
 
 	first := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	write := writer(seed)
 	err = load(ctx, conn, "posts", []string{"user_id", "body", "created_at"},
 		pgx.CopyFromSlice(20*users, func(i int) ([]any, error) {
 			author := pick()
-			body := fmt.Sprintf("post %d, by user%d", i+1, author)
-			return []any{author, body, first.Add(time.Duration(i) * time.Second)}, nil
+			return []any{author, write(), first.Add(time.Duration(i) * time.Second)}, nil
 		}))
 	if err != nil {
 		return err

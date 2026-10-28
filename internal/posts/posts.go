@@ -2,7 +2,9 @@
 package posts
 
 import (
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -61,18 +63,58 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	httpx.JSON(w, http.StatusCreated, post)
 }
 
-// List returns one user's posts, newest first, 20 at most.
+// Listed is a post in a list: by whom, how many like it, and if the caller does.
+type Listed struct {
+	Post
+	Handle string `json:"handle"`
+	Likes  int    `json:"likes"`
+	Liked  bool   `json:"liked"`
+}
+
+// Page is one page of a user's posts. NextCursor is null on the last page.
+type Page struct {
+	NextCursor *int64   `json:"next_cursor"`
+	Posts      []Listed `json:"posts"`
+}
+
+// List returns a page of one user's posts, newest first: 20, or ?limit= up to
+// 100, below ?cursor= (a post id).
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	rows, _ := h.reads.For(r.Context(), users.ID(r.Context())).Query(r.Context(), `
-		select id, user_id, body, created_at
-		from posts
-		where user_id = (select id from users where handle = $1)
-		order by id desc
-		limit 20`, r.PathValue("handle"))
-	posts, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Post])
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit < 1 {
+		limit = 20
+	}
+	limit = min(limit, 100)
+	cursor := int64(math.MaxInt64)
+	if s := q.Get("cursor"); s != "" {
+		id, err := strconv.ParseInt(s, 10, 64)
+		if err != nil || id < 1 {
+			httpx.Error(w, http.StatusBadRequest, "cursor must be a post id")
+			return
+		}
+		cursor = id
+	}
+	me := users.ID(r.Context())
+	// The author's id first, by itself: then Postgres reads their posts in order,
+	// and stops at the limit.
+	rows, _ := h.reads.For(r.Context(), me).Query(r.Context(), `
+		select p.id, p.user_id, p.body, p.created_at, u.handle, p.likes_count,
+			exists (select 1 from likes where post_id = p.id and user_id = $4)
+		from posts p
+		join users u on u.id = p.user_id
+		where p.user_id = (select id from users where handle = $1) and p.id < $2
+		order by p.id desc
+		limit $3`, r.PathValue("handle"), cursor, limit+1, me)
+	posts, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Listed])
 	if err != nil {
 		httpx.ServerError(w, r, err)
 		return
 	}
-	httpx.JSON(w, http.StatusOK, map[string]any{"posts": posts})
+	page := Page{Posts: posts}
+	if len(posts) > limit {
+		page.Posts = posts[:limit]
+		page.NextCursor = &posts[limit-1].ID
+	}
+	httpx.JSON(w, http.StatusOK, page)
 }

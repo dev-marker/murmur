@@ -21,6 +21,7 @@ type Post struct {
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"created_at"`
 	Likes     int       `json:"likes"`
+	Liked     bool      `json:"liked"` // by the caller
 }
 
 // Page is one page of a feed. NextCursor is null on the last page.
@@ -62,11 +63,12 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, _ := db.Query(r.Context(), `
-		select p.id, u.handle, p.body, p.created_at, p.likes_count
+		select p.id, u.handle, p.body, p.created_at, p.likes_count,
+			exists (select 1 from likes where post_id = p.id and user_id = $2)
 		from posts p
 		join users u on u.id = p.user_id
 		where p.id = any($1)
-		order by p.id desc`, ids)
+		order by p.id desc`, ids, users.ID(r.Context()))
 	posts, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Post])
 	if err != nil {
 		httpx.ServerError(w, r, err)

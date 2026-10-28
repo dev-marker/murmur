@@ -12,11 +12,14 @@ import (
 
 	"github.com/fiston-user/murmur/internal/feed"
 	"github.com/fiston-user/murmur/internal/jobs"
+	"github.com/fiston-user/murmur/internal/likes"
+	"github.com/fiston-user/murmur/internal/notify"
 	"github.com/fiston-user/murmur/internal/platform/replica"
 	"github.com/fiston-user/murmur/internal/platform/testdb"
 	"github.com/fiston-user/murmur/internal/posts"
 	"github.com/fiston-user/murmur/internal/timeline"
 	"github.com/fiston-user/murmur/internal/users"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -26,6 +29,7 @@ type client struct {
 	url string
 	rdb *redis.Client
 	w   *jobs.Worker
+	db  *pgxpool.Pool
 	tl  *timeline.Store
 }
 
@@ -36,14 +40,19 @@ func newClient(t *testing.T) *client {
 	u, p, f := users.New(db, tl), posts.New(db, reads), feed.New(reads, tl)
 	w := jobs.NewWorker(db)
 	w.Handle(timeline.FanOut, tl.RunFanOut)
+	n := notify.New(db, rdb)
+	w.Handle(notify.Like, n.RunLike)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /users", u.Create)
 	mux.HandleFunc("POST /posts", u.Auth(p.Create))
 	mux.HandleFunc("POST /users/{handle}/follow", u.Auth(u.Follow))
 	mux.HandleFunc("GET /feed", u.Auth(f.List))
+	mux.HandleFunc("GET /users/{handle}/posts", u.Maybe(p.List))
+	mux.HandleFunc("POST /posts/{id}/like", u.Auth(likes.New(db).Like))
+	mux.HandleFunc("GET /notifications", u.Auth(n.List))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return &client{t: t, url: srv.URL, rdb: rdb, w: w, tl: tl}
+	return &client{t: t, url: srv.URL, rdb: rdb, w: w, tl: tl, db: db}
 }
 
 // call sends one request, checks the status, and decodes a JSON answer into out (unless out is nil).
@@ -53,7 +62,9 @@ func (c *client) call(method, path, token, body string, want int, out any) {
 	if err != nil {
 		c.t.Fatal(err)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	if token != "" { // no token: nobody
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		c.t.Fatal(err)
@@ -203,5 +214,57 @@ func TestFanOutTwice(t *testing.T) {
 	got := c.rdb.ZRange(ctx, "timeline:2", 0, -1).Val()
 	if want := []string{"0", "1"}; !slices.Equal(got, want) {
 		t.Fatalf("bob's timeline = %v, want %v", got, want)
+	}
+}
+
+// A list says how many like each post, and if the caller does. A profile pages like the feed.
+func TestLiked(t *testing.T) {
+	c := newClient(t)
+	alice, bob := c.signUp("alice"), c.signUp("bob")
+	c.call("POST", "/users/alice/follow", bob, "", http.StatusNoContent, nil)
+	for i := range 3 {
+		c.call("POST", "/posts", alice, fmt.Sprintf(`{"body": "hello %d"}`, i+1),
+			http.StatusCreated, nil)
+	}
+	c.call("POST", "/posts/2/like", bob, "", http.StatusNoContent, nil)
+	if _, err := likes.Fold(context.Background(), c.db); err != nil {
+		t.Fatal(err)
+	}
+
+	// each post as "id likes liked", and the next cursor
+	list := func(path, token string) []string {
+		var page struct {
+			NextCursor *int64         `json:"next_cursor"`
+			Posts      []posts.Listed `json:"posts"`
+		}
+		c.call("GET", path, token, "", http.StatusOK, &page)
+		var got []string
+		for _, p := range page.Posts {
+			got = append(got, fmt.Sprint(p.ID, " ", p.Likes, " ", p.Liked))
+		}
+		if page.NextCursor != nil {
+			got = append(got, fmt.Sprint("next ", *page.NextCursor))
+		}
+		return got
+	}
+	for _, tc := range []struct {
+		name, path, token string
+		want              []string
+	}{
+		{"the feed", "/feed", bob, []string{"3 0 false", "2 1 true", "1 0 false"}},
+		{"a profile", "/users/alice/posts?limit=2", bob, []string{"3 0 false", "2 1 true", "next 2"}},
+		{"its next page", "/users/alice/posts?limit=2&cursor=2", bob, []string{"1 0 false"}},
+		{"for nobody", "/users/alice/posts", "", []string{"3 0 false", "2 1 false", "1 0 false"}},
+	} {
+		if got := list(tc.path, tc.token); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+
+	// alice hears about it, with the words of the post that was liked
+	var told notify.Page
+	c.call("GET", "/notifications", alice, "", http.StatusOK, &told)
+	if len(told.Notifications) != 1 || told.Notifications[0].Body != "hello 2" {
+		t.Errorf("notifications = %+v, want one, for \"hello 2\"", told.Notifications)
 	}
 }
