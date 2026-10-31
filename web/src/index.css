@@ -1,0 +1,47 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+/* dark: follows the class on <html>, which index.html sets */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* The design tokens. Each is a utility too: bg-paper, text-mute… */
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --color-paper: #fbfaf8;
+  --color-ink: #26272b;
+  --color-mute: #66666e;
+  --color-line: #e6e4df;
+  --color-hover: #f1efeb;
+  --color-accent: #f5b13d;
+  --color-on-accent: #26272b;
+  --color-accent-ink: #9a5b00;
+}
+
+/* Dark is the same tokens with other values: no dark: everywhere */
+.dark {
+  --color-paper: #1b1c1f;
+  --color-ink: #ececee;
+  --color-mute: #9c9ca5;
+  --color-line: #2f3035;
+  --color-hover: #26272b;
+  --color-on-accent: #1b1c1f;
+  --color-accent-ink: #f5b13d;
+  color-scheme: dark;
+}
+
+@layer base {
+  body {
+    @apply bg-paper font-sans text-ink antialiased;
+  }
+  :focus-visible {
+    @apply rounded-sm outline-2 outline-offset-2 outline-accent;
+  }
+}
+
+/* Single elements used everywhere. Anything bigger is a component. */
+@layer components {
+  .bar {
+    @apply sticky top-0 z-10 border-b border-line bg-paper/90 px-4;
+    @apply py-3 font-semibold backdrop-blur;
+  }
+}

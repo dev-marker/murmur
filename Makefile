@@ -242,3 +242,9 @@ counts:
 		-c "select (select md5(string_agg(user_id || ' ' || created_at, ',' order by id)) from posts) \
 			as posts_md5, (select md5(string_agg(follower_id || ' ' || followee_id, ',' \
 			order by follower_id, followee_id)) from follows) as follows_md5"
+
+.PHONY: web-dev
+
+# the web app while you work on it: localhost:5173, with /api/ sent to nginx
+web-dev:
+	cd web && npm run dev
