@@ -40,6 +40,19 @@
 
 /* Single elements used everywhere. Anything bigger is a component. */
 @layer components {
+  .btn {
+    @apply rounded-full bg-accent px-4 py-1.5 text-sm font-medium;
+    @apply text-on-accent hover:brightness-95;
+    @apply disabled:bg-hover disabled:text-mute disabled:brightness-100;
+  }
+  .btn-quiet {
+    @apply rounded-full border border-line px-4 py-1.5 text-sm;
+    @apply font-medium hover:bg-hover;
+  }
+  .field {
+    @apply w-full rounded-lg border border-line bg-transparent px-3;
+    @apply py-2 placeholder:text-mute focus:border-mute;
+  }
   .bar {
     @apply sticky top-0 z-10 border-b border-line bg-paper/90 px-4;
     @apply py-3 font-semibold backdrop-blur;

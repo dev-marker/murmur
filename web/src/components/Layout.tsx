@@ -1,13 +1,13 @@
 import { Bell, House, User, type LucideIcon } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router'
+import { getSession } from '../lib/api'
 import { Settings } from './Settings'
 
 const item = `relative flex items-center gap-4 rounded-full p-3
   text-mute hover:bg-hover hover:text-ink lg:px-4`
 
 export function Layout() {
-  // Nobody can sign in yet, so Profile is a seeded account.
-  const handle = 'user16726'
+  const handle = getSession()?.handle
 
   const link = (to: string, Icon: LucideIcon, label: string) => (
     <NavLink
