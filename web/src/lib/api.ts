@@ -1,5 +1,14 @@
 // What the API answers with.
 export type Me = { id: number; handle: string }
+export type Post = {
+  id: number
+  handle: string
+  body: string
+  created_at: string
+  likes: number
+  liked: boolean
+}
+export type Page = { posts: Post[]; next_cursor: number | null }
 
 // The key and whose it is, kept together: the app never has to ask.
 type Session = { token: string; handle: string }

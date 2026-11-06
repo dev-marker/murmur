@@ -1,8 +1,28 @@
+import { useInfiniteQuery } from '@tanstack/react-query'
+import { Notice } from '../../components/ui/Notice'
+import { Composer } from './Composer'
+import { PostList } from './PostList'
+import { postsOptions } from './posts'
+
+const feedOptions = postsOptions('/feed', 'home')
+
 export function Home() {
+  const feed = useInfiniteQuery(feedOptions)
+
   return (
     <>
-      <h1 className="bar">Home</h1>
-      <p className="p-4 text-mute">The posts of who you follow.</p>
+      <header className="bar flex items-center justify-between">
+        <h1>Home</h1>
+      </header>
+      <Composer />
+      <PostList
+        query={feed}
+        empty={
+          <Notice title="Your feed is quiet">
+            Follow a few people and their posts land here.
+          </Notice>
+        }
+      />
     </>
   )
 }
