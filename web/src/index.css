@@ -15,6 +15,19 @@
   --color-accent: #f5b13d;
   --color-on-accent: #26272b;
   --color-accent-ink: #9a5b00;
+  --animate-pop: pop 300ms ease-out;
+  --animate-drop: drop 250ms ease-out;
+  @keyframes pop {
+    50% {
+      transform: scale(1.3);
+    }
+  }
+  @keyframes drop {
+    from {
+      transform: translateY(-0.5rem);
+      opacity: 0;
+    }
+  }
 }
 
 /* Dark is the same tokens with other values: no dark: everywhere */

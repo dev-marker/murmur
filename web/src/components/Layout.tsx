@@ -2,6 +2,7 @@ import { Bell, House, User, type LucideIcon } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router'
 import { getSession } from '../lib/api'
 import { Settings } from './Settings'
+import { Toasts } from './ui/Toasts'
 
 const item = `relative flex items-center gap-4 rounded-full p-3
   text-mute hover:bg-hover hover:text-ink lg:px-4`
@@ -53,6 +54,7 @@ export function Layout() {
       <aside className="sticky top-0 hidden h-dvh space-y-8 p-6 lg:block">
         <p className="text-sm text-mute">Who to follow, soon.</p>
       </aside>
+      <Toasts />
     </div>
   )
 }

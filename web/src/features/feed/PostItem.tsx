@@ -3,8 +3,10 @@ import { Link } from 'react-router'
 import { Avatar } from '../../components/ui/Avatar'
 import type { Post } from '../../lib/api'
 import { ago } from '../../lib/time'
+import { useLike } from './posts'
 
 export function PostItem({ post }: { post: Post }) {
+  const like = useLike()
   return (
     <article className="flex gap-3 px-4 pt-3.5 pb-2">
       <Avatar handle={post.handle} />
@@ -24,6 +26,7 @@ export function PostItem({ post }: { post: Post }) {
           {post.body}
         </p>
         <button
+          onClick={() => like.mutate(post)}
           aria-pressed={post.liked}
           aria-label={`Like, ${post.likes} so far`}
           className={`-ml-2 flex items-center gap-1.5 rounded-full
@@ -33,6 +36,7 @@ export function PostItem({ post }: { post: Post }) {
           <Heart
             size={16}
             fill={post.liked ? 'currentColor' : 'none'}
+            className={post.liked ? 'motion-safe:animate-pop' : ''}
           />
           {post.likes}
         </button>
