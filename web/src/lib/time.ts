@@ -17,3 +17,9 @@ export function ago(iso: string) {
   }
   return 'just now'
 }
+
+export const month = (iso: string) =>
+  new Date(iso).toLocaleDateString('en', {
+    month: 'long',
+    year: 'numeric',
+  })

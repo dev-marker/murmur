@@ -9,6 +9,14 @@ export type Post = {
   liked: boolean
 }
 export type Page = { posts: Post[]; next_cursor: number | null }
+export type Profile = {
+  handle: string
+  joined: string
+  followers: number
+  following: number
+  posts: number
+  followed_by_me: boolean
+}
 
 // The key and whose it is, kept together: the app never has to ask.
 type Session = { token: string; handle: string }

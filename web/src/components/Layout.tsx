@@ -1,5 +1,6 @@
 import { Bell, House, User, type LucideIcon } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router'
+import { Suggestions } from '../features/profile/Suggestions'
 import { getSession } from '../lib/api'
 import { Settings } from './Settings'
 import { Toasts } from './ui/Toasts'
@@ -52,7 +53,7 @@ export function Layout() {
       </main>
 
       <aside className="sticky top-0 hidden h-dvh space-y-8 p-6 lg:block">
-        <p className="text-sm text-mute">Who to follow, soon.</p>
+        <Suggestions />
       </aside>
       <Toasts />
     </div>
