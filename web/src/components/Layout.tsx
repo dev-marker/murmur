@@ -1,5 +1,7 @@
+import { useQuery } from '@tanstack/react-query'
 import { Bell, House, User, type LucideIcon } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router'
+import { unreadOptions } from '../features/notifications/unread'
 import { Suggestions } from '../features/profile/Suggestions'
 import { getSession } from '../lib/api'
 import { Settings } from './Settings'
@@ -10,8 +12,9 @@ const item = `relative flex items-center gap-4 rounded-full p-3
 
 export function Layout() {
   const handle = getSession()?.handle
+  const unread = useQuery(unreadOptions).data ?? 0
 
-  const link = (to: string, Icon: LucideIcon, label: string) => (
+  const link = (to: string, Icon: LucideIcon, label: string, n = 0) => (
     <NavLink
       to={to}
       end
@@ -21,6 +24,15 @@ export function Layout() {
     >
       <Icon size={22} aria-hidden />
       <span className="sr-only lg:not-sr-only">{label}</span>
+      {n > 0 && (
+        <span
+          className="absolute top-1.5 left-7 rounded-full bg-accent px-1.5
+            text-xs font-semibold text-on-accent tabular-nums"
+        >
+          {n > 99 ? '99+' : n}
+          <span className="sr-only"> unread</span>
+        </span>
+      )}
     </NavLink>
   )
 
@@ -39,7 +51,7 @@ export function Layout() {
           murmur<span className="text-accent-ink">.</span>
         </p>
         {link('/', House, 'Home')}
-        {link('/notifications', Bell, 'Notifications')}
+        {link('/notifications', Bell, 'Notifications', unread)}
         {link(`/u/${handle}`, User, 'Profile')}
         <Settings
           className="mt-auto hidden flex-col gap-1 sm:flex"

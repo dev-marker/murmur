@@ -17,6 +17,19 @@ export type Profile = {
   posts: number
   followed_by_me: boolean
 }
+export type Note = {
+  id: number
+  kind: 'like'
+  actor: string
+  post_id: number
+  created_at: string
+  unread: boolean
+  body: string // of the post that was liked
+}
+export type Notes = {
+  notifications: Note[]
+  next_cursor: number | null
+}
 
 // The key and whose it is, kept together: the app never has to ask.
 type Session = { token: string; handle: string }
