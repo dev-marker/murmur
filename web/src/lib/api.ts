@@ -52,6 +52,9 @@ export class ApiError extends Error {
   }
 }
 
+export const sleep = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms))
+
 // request calls the API under /api, the app's own address, with the
 // token. It turns {"error": "…"} into an ApiError.
 export async function request<T>(

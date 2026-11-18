@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Bell, House, User, type LucideIcon } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router'
+import { useLive } from '../features/live/useLive'
 import { unreadOptions } from '../features/notifications/unread'
 import { Suggestions } from '../features/profile/Suggestions'
 import { getSession } from '../lib/api'
@@ -11,6 +12,7 @@ const item = `relative flex items-center gap-4 rounded-full p-3
   text-mute hover:bg-hover hover:text-ink lg:px-4`
 
 export function Layout() {
+  const live = useLive()
   const handle = getSession()?.handle
   const unread = useQuery(unreadOptions).data ?? 0
 
@@ -66,6 +68,13 @@ export function Layout() {
 
       <aside className="sticky top-0 hidden h-dvh space-y-8 p-6 lg:block">
         <Suggestions />
+        <p className="flex items-center gap-2 text-xs text-mute">
+          <span
+            className={`size-1.5 rounded-full
+              ${live === 'live' ? 'bg-accent' : 'bg-line'}`}
+          />
+          {live === 'live' ? 'Live' : 'Connecting…'}
+        </p>
       </aside>
       <Toasts />
     </div>
