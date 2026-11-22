@@ -243,7 +243,11 @@ counts:
 			as posts_md5, (select md5(string_agg(follower_id || ' ' || followee_id, ',' \
 			order by follower_id, followee_id)) from follows) as follows_md5"
 
-.PHONY: web-dev
+.PHONY: web web-dev
+
+# build the web app into web/dist, where nginx serves it: localhost:8088
+web:
+	cd web && npm ci && npm run build
 
 # the web app while you work on it: localhost:5173, with /api/ sent to nginx
 web-dev:

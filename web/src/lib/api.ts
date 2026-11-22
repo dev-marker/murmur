@@ -1,3 +1,5 @@
+import { toast } from './toast'
+
 // What the API answers with.
 export type Me = { id: number; handle: string }
 export type Post = {
@@ -60,6 +62,7 @@ export const sleep = (ms: number) =>
 export async function request<T>(
   path: string,
   { json, ...init }: RequestInit & { json?: unknown } = {},
+  waits = 2,
 ): Promise<T> {
   const headers = new Headers(init.headers)
   const token = getSession()?.token
@@ -69,6 +72,14 @@ export async function request<T>(
     init.body = JSON.stringify(json)
   }
   const res = await fetch(`/api${path}`, { ...init, headers })
+  if (res.status === 429 && waits > 0) {
+    // Out of tokens: wait as long as the server says, then go again.
+    // Twice at most; after that the screen says so.
+    const wait = Number(res.headers.get('Retry-After')) || 1
+    toast(`Busy moment. Trying again in ${wait}s.`)
+    await sleep(wait * 1000)
+    return request(path, { json, ...init }, waits - 1)
+  }
   if (!res.ok) {
     const { error } = await res.json().catch(() => ({}))
     throw new ApiError(res.status, error ?? res.statusText)
